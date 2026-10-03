@@ -2,6 +2,7 @@
 
 import io
 import logging
+import time
 from datetime import date, timedelta
 
 import pandas as pd
@@ -53,23 +54,28 @@ def fear_greed() -> pd.Series | None:
         return None
 
 
-def fred(series_id: str) -> pd.Series | None:
-    """Zeitreihe der US-Notenbank St. Louis (FRED), ohne API-Key über den CSV-Export."""
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-    try:
-        r = requests.get(url, headers=UA, timeout=30)
-        r.raise_for_status()
-        df = pd.read_csv(io.StringIO(r.text))
-        df.columns = ["date", "value"]
-        s = pd.Series(
-            pd.to_numeric(df["value"], errors="coerce").to_numpy(),
-            index=pd.to_datetime(df["date"]),
-            name=series_id,
-        ).dropna()
-        return s
-    except Exception as e:  # noqa: BLE001
-        log.warning("FRED %s nicht abrufbar: %s", series_id, e)
-        return None
+def fred(series_id: str, tries: int = 3) -> pd.Series | None:
+    """Zeitreihe der US-Notenbank St. Louis (FRED), ohne API-Key über den CSV-Export.
+
+    Der Export antwortet manchmal sehr langsam, darum nur die letzten Jahre und mehrere Versuche.
+    """
+    start = (date.today() - timedelta(days=1500)).isoformat()
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
+    for attempt in range(1, tries + 1):
+        try:
+            r = requests.get(url, timeout=60)
+            r.raise_for_status()
+            df = pd.read_csv(io.StringIO(r.text))
+            df.columns = ["date", "value"]
+            return pd.Series(
+                pd.to_numeric(df["value"], errors="coerce").to_numpy(),
+                index=pd.to_datetime(df["date"]),
+                name=series_id,
+            ).dropna()
+        except Exception as e:  # noqa: BLE001
+            log.warning("FRED %s nicht abrufbar (Versuch %d/%d): %s", series_id, attempt, tries, e)
+            time.sleep(5 * attempt)
+    return None
 
 
 def sp500_tickers() -> list[str] | None:
