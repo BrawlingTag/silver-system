@@ -10,10 +10,10 @@ class FakeSource:
     `crash_end` = Handelstage vor dem Ende, an denen der Tiefpunkt liegt.
     """
 
-    def __init__(self, days=750, crash_pct=0.0, crash_len=25, crash_end=10, recovery=0.0, seed=1):
+    def __init__(self, days=750, crash_pct=0.0, crash_len=25, crash_end=10, recovery=0.0, seed=1, drift=0.0005):
         self.idx = pd.bdate_range(end="2026-10-02", periods=days)
         rng = np.random.default_rng(seed)
-        ret = rng.normal(0.0005, 0.0025, days)
+        ret = rng.normal(drift, 0.0025, days)
         bottom = days - 1 - crash_end
         start = bottom - crash_len
         if crash_pct:

@@ -23,17 +23,27 @@ WATCHLIST = [
 ]
 
 # Gewichte der drei Teilscores im Gesamtscore
-WEIGHTS = {"angst": 0.45, "wende": 0.35, "makro": 0.20}
+WEIGHTS = {"angst": 0.60, "wende": 0.15, "makro": 0.25}
 
-# Ampel
-RED_BELOW = 40
-GREEN_FROM = 65
-STRONG_FROM = 80  # ab hier ist auch 3x vertretbar
+# Ampel (per Backtest 2007-2026 gewählt, siehe README)
+RED_BELOW = 35
+GREEN_FROM = 50
+# Grün gibt es nur, solange der S&P 500 über seiner 200-Tage-Linie liegt.
+# Im Abwärtstrend (2008, 2022) haben Dip-Käufe mit Hebel im Backtest viel Geld gekostet.
+TREND_FILTER = True
 
-# Die Wende-Säule zählt nur, wenn es vorher einen echten Rücksetzer gab:
-# S&P 500 mindestens so weit unter dem Hoch innerhalb der letzten 60 Handelstage
-DIP_MIN_DRAWDOWN = 8.0
-DIP_LOOKBACK = 60
+# Dip-Ende: Ist der Score in den letzten SETUP_DAYS Handelstagen grün gewesen (Dip läuft),
+# kommt das Kaufsignal erst, wenn der RSI über seinen kurzen Durchschnitt (RSI_MA Tage) kreuzt.
+# Das Signal bleibt danach TRIGGER_HOLD Handelstage sichtbar.
+RSI_TRIGGER = True
+RSI_MA = 5
+SETUP_DAYS = 10
+TRIGGER_HOLD = 3
+
+# Die Stabilisierungs-Säule zählt nur, wenn es vorher einen Rücksetzer gab:
+# S&P 500 mindestens so weit unter dem Hoch innerhalb der letzten 20 Handelstage
+DIP_MIN_DRAWDOWN = 5.0
+DIP_LOOKBACK = 20
 
 # Veto: Rezessionssignal plus schnell steigende Kreditspreads -> höchstens Gelb
 VETO_SAHM = 0.5

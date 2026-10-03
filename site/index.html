@@ -154,7 +154,7 @@ function renderHero(d) {
 }
 
 function renderSubs(d) {
-  const names = { angst: "Angst im Markt", wende: "Wende-Bestätigung", makro: "Makro (100 = keine Krise)" };
+  const names = { angst: "Angst im Markt", wende: "Stabilisierung", makro: "Makro (100 = keine Krise)" };
   const box = document.getElementById("subs");
   for (const k of ["angst", "wende", "makro"]) {
     const v = d.sub[k];
@@ -170,7 +170,7 @@ function renderSubs(d) {
       det.appendChild(t);
       row.appendChild(det);
     }
-    if (k === "wende" && !d.dip) row.appendChild(el("div", { class: "muted" }, "Zählt erst nach einem Rücksetzer von mindestens 8 %."));
+    if (k === "wende" && !d.dip) row.appendChild(el("div", { class: "muted" }, `Zählt erst nach einem Rücksetzer von mindestens ${d.dip_min} %.`));
     box.appendChild(row);
   }
 }

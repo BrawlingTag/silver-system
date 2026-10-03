@@ -17,9 +17,8 @@ UA = {
 }
 
 
-def closes(tickers: list[str], period: str = "3y") -> pd.DataFrame:
-    """Schlusskurse (dividendenbereinigt) als DataFrame, eine Spalte je Ticker."""
-    data = yf.download(tickers, period=period, auto_adjust=True, progress=False, threads=True)
+def _download(tickers: list[str], span: dict, threads: bool) -> pd.DataFrame:
+    data = yf.download(tickers, **span, auto_adjust=True, progress=False, threads=threads)
     df = data["Close"]
     if isinstance(df, pd.Series):
         df = df.to_frame(tickers[0])
@@ -27,39 +26,61 @@ def closes(tickers: list[str], period: str = "3y") -> pd.DataFrame:
     return df
 
 
-def fear_greed() -> pd.Series | None:
-    """CNN Fear & Greed, inoffizieller Endpunkt der CNN-Seite."""
-    start = (date.today() - timedelta(days=800)).isoformat()
-    url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
+def closes(tickers: list[str], period: str = "3y", start: str | None = None) -> pd.DataFrame:
+    """Schlusskurse (dividendenbereinigt) als DataFrame, eine Spalte je Ticker.
+
+    Beim parallelen Download sperrt sich yfinance gelegentlich selbst ("database is locked");
+    fehlende Ticker werden deshalb einmal nacheinander nachgeladen.
+    """
+    span = {"start": start} if start else {"period": period}
+    df = _download(tickers, span, threads=True)
+    missing = [t for t in tickers if t not in df or df[t].dropna().empty]
+    if missing:
+        log.info("Lade %d fehlende Ticker nach: %s", len(missing), ", ".join(missing[:10]))
+        retry = _download(missing, span, threads=False)
+        for t in missing:
+            if t in retry and not retry[t].dropna().empty:
+                df = df.drop(columns=t, errors="ignore").join(retry[t], how="outer")
+    return df
+
+
+def fear_greed(days: int = 800) -> pd.Series | None:
+    """CNN Fear & Greed, inoffizieller Endpunkt der CNN-Seite.
+
+    Sehr frühe Startdaten lehnt CNN mit einem Serverfehler ab; dann wird mit 800 Tagen neu versucht.
+    """
     headers = {**UA, "Referer": "https://edition.cnn.com/", "Origin": "https://edition.cnn.com"}
-    try:
-        r = requests.get(url, headers=headers, timeout=30)
-        r.raise_for_status()
-        js = r.json()
-        rows = js["fear_and_greed_historical"]["data"]
-        s = pd.Series(
-            [p["y"] for p in rows],
-            index=pd.to_datetime([p["x"] for p in rows], unit="ms").normalize(),
-            name="fear_greed",
-        )
-        s = s[~s.index.duplicated(keep="last")].sort_index()
-        # Der aktuelle Wert steht separat und ist oft neuer als die Historie
-        now = js.get("fear_and_greed", {})
-        if "score" in now and "timestamp" in now:
-            ts = pd.to_datetime(now["timestamp"]).tz_localize(None).normalize()
-            s.loc[ts] = float(now["score"])
-        return s.sort_index()
-    except Exception as e:  # noqa: BLE001
-        log.warning("Fear & Greed nicht abrufbar: %s", e)
-        return None
+    for span in dict.fromkeys([days, 800]):
+        start = (date.today() - timedelta(days=span)).isoformat()
+        url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
+        try:
+            r = requests.get(url, headers=headers, timeout=30)
+            r.raise_for_status()
+            js = r.json()
+            rows = js["fear_and_greed_historical"]["data"]
+            s = pd.Series(
+                [p["y"] for p in rows],
+                index=pd.to_datetime([p["x"] for p in rows], unit="ms").normalize(),
+                name="fear_greed",
+            )
+            s = s[~s.index.duplicated(keep="last")].sort_index()
+            # Der aktuelle Wert steht separat und ist oft neuer als die Historie
+            now = js.get("fear_and_greed", {})
+            if "score" in now and "timestamp" in now:
+                ts = pd.to_datetime(now["timestamp"]).tz_localize(None).normalize()
+                s.loc[ts] = float(now["score"])
+            return s.sort_index()
+        except Exception as e:  # noqa: BLE001
+            log.warning("Fear & Greed ab %s nicht abrufbar: %s", start, e)
+    return None
 
 
-def fred(series_id: str, tries: int = 3) -> pd.Series | None:
+def fred(series_id: str, tries: int = 3, days: int = 1500) -> pd.Series | None:
     """Zeitreihe der US-Notenbank St. Louis (FRED), ohne API-Key über den CSV-Export.
 
     Der Export antwortet manchmal sehr langsam, darum nur die letzten Jahre und mehrere Versuche.
     """
-    start = (date.today() - timedelta(days=1500)).isoformat()
+    start = (date.today() - timedelta(days=days)).isoformat()
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
     for attempt in range(1, tries + 1):
         try:
@@ -89,13 +110,13 @@ def sp500_tickers() -> list[str] | None:
         return None
 
 
-def breadth() -> pd.Series | None:
+def breadth(start: str | None = None) -> pd.Series | None:
     """Anteil der S&P-500-Aktien über ihrer 200-Tage-Linie in Prozent."""
     tickers = sp500_tickers()
     if not tickers:
         return None
     try:
-        df = closes(tickers, period="3y")
+        df = closes(tickers, period="3y", start=start)
         sma = df.rolling(200).mean()
         valid = sma.notna() & df.notna()
         above = (df > sma) & valid
