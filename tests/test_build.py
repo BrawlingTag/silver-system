@@ -1,0 +1,75 @@
+import json
+
+import pandas as pd
+
+from dipbuy import build, indicators as ind
+from tests.fake_source import FakeSource
+
+
+def run(tmp_path, **kw):
+    out = tmp_path / "data.json"
+    build.build(FakeSource(**kw), out)
+    return json.loads(out.read_text())
+
+
+def test_calm_market_is_red(tmp_path):
+    data = run(tmp_path)
+    assert data["signal"]["color"] == "red"
+    assert data["sub"]["wende"] == 0
+    assert all(e["hold"] for e in data["exits"])
+
+
+def test_crash_without_turn_is_not_green(tmp_path):
+    data = run(tmp_path, crash_pct=0.25, crash_end=0)
+    assert data["sub"]["angst"] > 60
+    assert data["signal"]["color"] != "green"
+
+
+def test_crash_with_turn_is_green(tmp_path):
+    data = run(tmp_path, crash_pct=0.25, crash_end=8, recovery=0.08)
+    assert data["dip"]
+    assert data["sub"]["wende"] > 50
+    assert data["signal"]["color"] == "green", data["score"]
+
+
+def test_output_shape(tmp_path):
+    data = run(tmp_path, crash_pct=0.2, crash_end=5, recovery=0.03)
+    assert 0 <= data["score"] <= 100
+    assert len(data["history"]["dates"]) == len(data["history"]["score"]) > 300
+    assert len(data["stocks"]) == 40
+    assert {"angst", "wende", "makro"} == set(data["parts"])
+
+
+def test_veto_caps_score(tmp_path):
+    src = FakeSource(crash_pct=0.3, crash_end=8, recovery=0.1)
+    hy = pd.Series(4.0, index=src.idx)
+    hy.iloc[-20:] = [4.0 + 0.1 * i for i in range(20)]
+    src.fred = lambda sid: pd.Series(0.7, index=src.idx) if sid == "SAHMREALTIME" else hy
+    out = tmp_path / "d.json"
+    data = build.build(src, out)
+    assert data["veto"]
+    assert data["score"] <= 60
+
+
+def test_missing_sources_still_build(tmp_path):
+    src = FakeSource(crash_pct=0.2, crash_end=5)
+    src.fear_greed = lambda: None
+    src.breadth = lambda: None
+    src.fred = lambda sid: None
+    data = build.build(src, tmp_path / "d.json")
+    assert data["sub"]["makro"] is None
+    assert 0 <= data["score"] <= 100
+
+
+def test_exit_signal_below_sma200():
+    s = pd.Series(range(300, 0, -1), index=pd.bdate_range("2025-01-01", periods=300), dtype=float)
+    e = ind.exit_signal(s)
+    assert e["hold"] is False and e["distance"] < 0
+
+
+def test_stock_score_prefers_dip_with_rising_estimates():
+    idx = pd.bdate_range("2025-01-01", periods=300)
+    up = pd.Series([100 + i * 0.3 for i in range(300)], index=idx)
+    down = pd.Series([100 + i * 0.3 for i in range(250)] + [175 - i * 1.5 for i in range(50)], index=idx)
+    info = {"target": 200.0, "rating": 1.7, "revision": 3.0}
+    assert ind.stock_score(down, info)["score"] > ind.stock_score(up, info)["score"]

@@ -1,0 +1,48 @@
+name: Score aktualisieren
+
+on:
+  schedule:
+    # Werktags 22:15 UTC, nach US-Börsenschluss
+    - cron: "15 22 * * 1-5"
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+      - run: python -m dipbuy.build site/data.json
+      - name: Ergebnis anzeigen
+        run: python -c "import json; d=json.load(open('site/data.json')); print(d['asof'], d['score'], d['signal'], d['sub']); print([p['label'] for k in d['parts'] for p in d['parts'][k]]); print(len(d['stocks']), 'Aktien', d['stocks'][:2])"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

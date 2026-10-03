@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%227%22 fill=%22%232f9e5b%22/%3E%3C/svg%3E">
+<title>Dip-Buy-Score</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --text: #1b1b1b; --muted: #6b6b6b; --line: #e4e4e0;
+    --red: #d64545; --yellow: #d99a1e; --green: #2f9e5b; --grey: #9a9a9a; --accent: #3a6ea5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212; --card: #1c1c1c; --text: #ececec; --muted: #9a9a9a; --line: #2e2e2e;
+      --red: #ef6464; --yellow: #f0b43c; --green: #4cc27e; --accent: #7aa7da;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+  .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+  .hero { display: flex; gap: 20px; align-items: center; }
+  .ring { width: 116px; height: 116px; flex: none; position: relative; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .label { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  .lever { font-size: 14px; margin: 8px 0 0; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; color: #fff; }
+  .bar-row { margin: 10px 0; }
+  .bar-head { display: flex; justify-content: space-between; font-size: 14px; }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin-top: 5px; }
+  .bar > div { height: 100%; border-radius: 99px; }
+  details { margin-top: 4px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+  .parts { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  .parts td { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .parts td:nth-child(2) { text-align: right; color: var(--muted); padding-right: 12px; white-space: nowrap; }
+  .parts td:last-child { text-align: right; width: 38px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .exit { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .exit:last-child { border-bottom: 0; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 5px; }
+  .tablewrap { overflow-x: auto; margin: 0 -18px; padding: 0 18px; }
+  table.stocks { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  table.stocks th { text-align: right; font-weight: 600; color: var(--muted); padding: 6px 6px; cursor: pointer; white-space: nowrap; border-bottom: 1px solid var(--line); user-select: none; }
+  table.stocks td { text-align: right; padding: 7px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.stocks th:first-child, table.stocks td:first-child { text-align: left; }
+  table.stocks td:first-child small { color: var(--muted); display: block; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+  .score-chip { display: inline-block; min-width: 36px; text-align: center; border-radius: 6px; padding: 1px 6px; font-weight: 700; color: #fff; }
+  .neg { color: var(--red); } .pos { color: var(--green); }
+  #more { margin-top: 10px; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  footer { font-size: 12px; color: var(--muted); margin-top: 18px; }
+  #err { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>Dip-Buy-Score</h1>
+    <span class="muted" id="asof"></span>
+  </div>
+
+  <div class="card" id="err">Daten konnten nicht geladen werden.</div>
+
+  <section class="card hero">
+    <div class="ring">
+      <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--line)" stroke-width="12"/>
+        <circle id="arc" cx="60" cy="60" r="52" fill="none" stroke-width="12" stroke-linecap="round" stroke-dasharray="0 999"/></svg>
+      <div class="num" id="score">–</div>
+    </div>
+    <div>
+      <p class="label" id="label"></p>
+      <div class="muted" id="summary"></div>
+      <p class="lever">Hebel: <b id="lever"></b></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Teilscores</h2>
+    <div id="subs"></div>
+  </section>
+
+  <section class="card">
+    <h2>Ausstiegssignal: Hebel nur über der 200-Tage-Linie</h2>
+    <div id="exits"></div>
+  </section>
+
+  <section class="card chart">
+    <h2>Verlauf</h2>
+    <div id="chart"></div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Score</span><span><i style="background:var(--muted)"></i>S&amp;P 500</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Watchlist Growth-Aktien</h2>
+    <div class="tablewrap"><table class="stocks" id="stocks"></table></div>
+    <button id="more" type="button"></button>
+    <p class="muted">Score aus Rücksetzer vom 52-Wochen-Hoch, RSI, Kursziel-Abstand, Analysten-Rating (1 = Strong Buy) und Änderung der Gewinnschätzung über 90 Tage. Tippe auf eine Spalte zum Sortieren.</p>
+  </section>
+
+  <footer>
+    Aktualisiert jeden US-Handelstag nach Börsenschluss. Quellen: Yahoo Finance, CNN, FRED, Wikipedia.
+    Keine Anlageberatung. Gehebelte Produkte können in Seitwärts- und Abwärtsphasen stark an Wert verlieren.
+    <br><span id="generated"></span>
+  </footer>
+</main>
+
+<script>
+const COLORS = { red: "var(--red)", yellow: "var(--yellow)", green: "var(--green)", grey: "var(--grey)" };
+const fmt = (v, d = 1, suf = "") => v == null ? "–" : v.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d }) + suf;
+let T;
+
+function colorFor(score) {
+  if (score == null) return COLORS.grey;
+  if (score >= T.green_from) return COLORS.green;
+  if (score >= T.red_below) return COLORS.yellow;
+  return COLORS.red;
+}
+
+function el(tag, attrs = {}, html = "") {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  e.innerHTML = html;
+  return e;
+}
+
+function renderHero(d) {
+  const c = COLORS[d.signal.color];
+  document.getElementById("score").textContent = Math.round(d.score);
+  const arc = document.getElementById("arc");
+  const len = 2 * Math.PI * 52;
+  arc.setAttribute("stroke", c);
+  arc.setAttribute("stroke-dasharray", `${len * d.score / 100} ${len}`);
+  const label = document.getElementById("label");
+  label.textContent = d.signal.label;
+  label.style.color = c;
+  document.getElementById("summary").textContent = d.summary;
+  document.getElementById("lever").textContent = d.signal.lever;
+  const asof = new Date(d.asof + "T12:00:00");
+  document.getElementById("asof").textContent = "Stand " + asof.toLocaleDateString("de-DE", { day: "numeric", month: "short", year: "numeric" });
+  document.getElementById("generated").textContent = "Berechnet " + new Date(d.generated).toLocaleString("de-DE");
+}
+
+function renderSubs(d) {
+  const names = { angst: "Angst im Markt", wende: "Wende-Bestätigung", makro: "Makro (100 = keine Krise)" };
+  const box = document.getElementById("subs");
+  for (const k of ["angst", "wende", "makro"]) {
+    const v = d.sub[k];
+    const row = el("div", { class: "bar-row" });
+    row.innerHTML = `<div class="bar-head"><span>${names[k]} <span class="muted">· ${Math.round(d.weights[k] * 100)} %</span></span><b>${v == null ? "–" : Math.round(v)}</b></div>
+      <div class="bar"><div style="width:${v ?? 0}%;background:var(--accent)"></div></div>`;
+    const parts = d.parts[k] || [];
+    if (parts.length) {
+      const det = el("details");
+      det.appendChild(el("summary", {}, "Einzelwerte"));
+      const t = el("table", { class: "parts" });
+      t.innerHTML = parts.map(p => `<tr><td>${p.label}</td><td>${p.value ?? ""}</td><td>${p.score}</td></tr>`).join("");
+      det.appendChild(t);
+      row.appendChild(det);
+    }
+    if (k === "wende" && !d.dip) row.appendChild(el("div", { class: "muted" }, "Zählt erst nach einem Rücksetzer von mindestens 8 %."));
+    box.appendChild(row);
+  }
+}
+
+function renderExits(d) {
+  const box = document.getElementById("exits");
+  for (const e of d.exits) {
+    if (e.hold == null) continue;
+    const pill = e.hold
+      ? `<span class="pill" style="background:var(--green)">Hebel halten</span>`
+      : `<span class="pill" style="background:var(--red)">Hebel raus</span>`;
+    const dist = `<span class="${e.distance >= 0 ? "pos" : "neg"}">${e.distance >= 0 ? "+" : ""}${fmt(e.distance, 1, " %")}</span>`;
+    box.appendChild(el("div", { class: "exit" },
+      `<span>${e.name}<br><span class="muted">${dist} zur Linie · seit ${e.days} Tagen</span></span>${pill}`));
+  }
+}
+
+function renderChart(d) {
+  const h = d.history, n = h.score.length;
+  if (!n) return;
+  const W = Math.max(280, document.getElementById("chart").clientWidth), H = 240, top = 8, mid = 110, gap = 14, bot = H - 20;
+  const x = i => (i / (n - 1)) * W;
+  const spx = h.spx.filter(v => v != null);
+  const lo = Math.min(...spx), hi = Math.max(...spx);
+  const yp = v => top + (1 - (v - lo) / (hi - lo || 1)) * (mid - top);
+  const ys = v => mid + gap + (1 - v / 100) * (bot - mid - gap);
+  const path = (arr, y) => arr.map((v, i) => v == null ? "" : `${i && arr[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const band = (from, to, c) => `<rect x="0" y="${ys(to)}" width="${W}" height="${ys(from) - ys(to)}" fill="${c}" opacity=".12"/>`;
+  const ticks = [];
+  let lastMonth = "";
+  h.dates.forEach((s, i) => {
+    const m = s.slice(0, 7);
+    if (m !== lastMonth && (s.slice(5, 7) === "01" || s.slice(5, 7) === "07")) ticks.push([i, s]);
+    lastMonth = m;
+  });
+  const tickSvg = ticks.map(([i, s]) =>
+    `<line x1="${x(i)}" x2="${x(i)}" y1="${top}" y2="${bot}" stroke="var(--line)"/>
+     <text x="${x(i) + 3}" y="${H - 5}" font-size="11" fill="var(--muted)">${s.slice(5, 7) === "01" ? s.slice(0, 4) : "Jul"}</text>`).join("");
+  document.getElementById("chart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Score-Verlauf und S&P 500">
+      ${tickSvg}
+      ${band(0, T.red_below, "var(--red)")}${band(T.red_below, T.green_from, "var(--yellow)")}${band(T.green_from, 100, "var(--green)")}
+      <path d="${path(h.spx, yp)}" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+      <path d="${path(h.score, ys)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+      <text x="${W - 4}" y="${ys(100) + 11}" font-size="11" fill="var(--muted)" text-anchor="end">Score</text>
+      <text x="${W - 4}" y="${top + 11}" font-size="11" fill="var(--muted)" text-anchor="end">S&amp;P 500</text>
+    </svg>`;
+}
+
+const COLS = [
+  { key: "ticker", label: "Aktie" },
+  { key: "score", label: "Score" },
+  { key: "drawdown", label: "unter Hoch" },
+  { key: "rsi", label: "RSI" },
+  { key: "upside", label: "Kursziel" },
+  { key: "rating", label: "Rating" },
+  { key: "revision", label: "Schätzung 90T" },
+];
+let sortKey = "score", sortDir = -1, STOCKS = [], showAll = false;
+const SHOW_FIRST = 10;
+
+function renderStocks() {
+  const t = document.getElementById("stocks");
+  const rows = [...STOCKS].sort((a, b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (av == null) return 1; if (bv == null) return -1;
+    return (av > bv ? 1 : av < bv ? -1 : 0) * sortDir;
+  }).slice(0, showAll ? undefined : SHOW_FIRST);
+  const more = document.getElementById("more");
+  more.style.display = STOCKS.length > SHOW_FIRST ? "inline-block" : "none";
+  more.textContent = showAll ? "Weniger anzeigen" : `Alle ${STOCKS.length} anzeigen`;
+  t.innerHTML = `<thead><tr>${COLS.map(c => `<th data-k="${c.key}">${c.label}${c.key === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(s => `<tr>
+      <td><b>${s.ticker}</b><small>${s.name && s.name !== s.ticker ? s.name : ""}</small></td>
+      <td><span class="score-chip" style="background:${colorFor(s.score)}">${s.score == null ? "–" : Math.round(s.score)}</span></td>
+      <td>${s.drawdown == null ? "–" : "-" + fmt(s.drawdown, 0, " %")}</td>
+      <td>${fmt(s.rsi, 0)}</td>
+      <td class="${s.upside > 0 ? "pos" : "neg"}">${s.upside == null ? "–" : (s.upside > 0 ? "+" : "") + fmt(s.upside, 0, " %")}</td>
+      <td>${fmt(s.rating, 1)}</td>
+      <td class="${s.revision >= 0 ? "pos" : "neg"}">${s.revision == null ? "–" : (s.revision > 0 ? "+" : "") + fmt(s.revision, 1, " %")}</td>
+    </tr>`).join("")}</tbody>`;
+  t.querySelectorAll("th").forEach(th => th.onclick = () => {
+    const k = th.dataset.k;
+    if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = k === "ticker" || k === "rating" ? 1 : -1; }
+    renderStocks();
+  });
+}
+
+fetch("data.json", { cache: "no-store" })
+  .then(r => r.json())
+  .then(d => {
+    T = d.thresholds;
+    renderHero(d); renderSubs(d); renderExits(d); renderChart(d);
+    STOCKS = d.stocks; renderStocks();
+    document.getElementById("more").onclick = () => { showAll = !showAll; renderStocks(); };
+    let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => renderChart(d), 150); });
+  })
+  .catch(() => { document.getElementById("err").style.display = "block"; });
+</script>
+</body>
+</html>
