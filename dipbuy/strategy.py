@@ -84,11 +84,11 @@ def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
 
     ndx, spx = d["ndx"].dropna(), d["spx"].dropna()
     buy = sig["buy"]
-    pos = ind.hold_state(ndx, buy)
-    pos_spx = ind.hold_state(spx, buy)
+    pos = ind.hold_state(ndx, buy, buy_overrides=config.BUY_BELOW_EXIT)
+    pos_spx = ind.hold_state(spx, buy, buy_overrides=config.BUY_BELOW_EXIT)
+    loose = ind.hold_state(ndx, buy)
     trend = ind.hold_state(ndx)
-    strict = ind.hold_state(ndx, buy, buy_overrides=False)
-    stop10 = ind.hold_state(ndx, buy, stop=10)
+    stop10 = ind.hold_state(ndx, buy, stop=10)  # Stopp-Varianten: Kaufsignal auch unter der Verkaufsmarke
     stop20 = ind.hold_state(ndx, buy, stop=20)
     always = pd.Series(True, index=ndx.index)
     never = pd.Series(False, index=ndx.index)
@@ -101,7 +101,7 @@ def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
         "Nasdaq 100 3x, Regeln": (ndx, 3, *follow(pos)),
         "Nasdaq 100 3x, nur Kaufsignal ohne Wiedereinstieg": (ndx, 3, buy, pos["sell"]),
         "Nasdaq 100 3x, nur 200-Tage-Linie (ohne Kaufsignal)": (ndx, 3, *follow(trend)),
-        "Nasdaq 100 3x, Kaufsignal nur über der Verkaufsmarke": (ndx, 3, *follow(strict)),
+        "Nasdaq 100 3x, Kaufsignal auch unter der Verkaufsmarke": (ndx, 3, *follow(loose)),
         "Nasdaq 100 3x, Regeln, Stopp 10 % unter Kaufkurs": (ndx, 3, *follow(stop10)),
         "Nasdaq 100 3x, Regeln, Stopp 20 % unter Kaufkurs": (ndx, 3, *follow(stop20)),
         "S&P 500 3x, Regeln": (spx, 3, *follow(pos_spx)),

@@ -104,7 +104,7 @@ def sensitivity(d: dict, years: float) -> list:
     for ath in ATH_PCTS:
         for vix in VIX_MINS:
             sig = ind.signals(d["spx"], d["vix"], d["fear_greed"], ath_pct=ath, vix_min=vix)
-            pos = ind.hold_state(ndx, sig["buy"])
+            pos = ind.hold_state(ndx, sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)
             s = summarize(signal_rows(ndx, sig), years)
             sim = strategy.simulate(ndx, 3, ~pos["out"], pos["sell"], EVAL_FROM)
             rows.append({"ath_pct": ath, "vix_min": vix, **s, "cagr": sim["cagr"], "max_dd": sim["max_dd"]})
@@ -153,7 +153,9 @@ def report(result: dict) -> str:
         f"dann RSI über dem Schnitt der letzten {config.RSI_MA} Tage. "
         "CNN-Werte gibt es nur für die letzten Jahre, davor zählt nur S&P und VIX. "
         f"Verkauf: Nasdaq 100 mehr als {config.EXIT_BELOW:g} % unter der 200-Tage-Linie. "
-        "Wiedereinstieg: beim nächsten Kaufsignal oder wieder über der 200-Tage-Linie.",
+        "Wiedereinstieg: beim nächsten Kaufsignal oder wieder über der 200-Tage-Linie. "
+        + ("Kaufsignale zählen auch unter der Verkaufsmarke." if config.BUY_BELOW_EXIT
+           else "Kaufsignale zählen nur, solange der Nasdaq nicht unter der Verkaufsmarke liegt."),
         "",
         "## Kaufsignale",
         "",

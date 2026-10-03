@@ -35,7 +35,7 @@ PANIC = ((300, 0.15), (10, -1.05), (2, 1.0))
 
 def today(spx, vix, fg):
     sig = ind.signals(spx, vix, fg)
-    pos = ind.hold_state(spx, sig["buy"])
+    pos = ind.hold_state(spx, sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)
     return sig, pos, ind.status(sig.iloc[-1], pos.iloc[-1])
 
 
@@ -194,3 +194,11 @@ def test_buy_below_sell_mark_ignored_when_strict():
     buy = pd.Series(False, index=s.index)
     buy.iloc[-2] = True
     assert ind.hold_state(s, buy, buy_overrides=False)["out"].iloc[-1]
+
+
+def test_buy_signal_in_bear_market_says_stay_out():
+    # Langer Absturz weit unter die Linie, Panik, dann dreht der RSI
+    spx = series((300, 0.15), (30, -1.0), (2, 1.0))
+    sig, pos, st = today(spx, flat(spx, (301, 15), (32, 40)), flat(spx, (301, 60), (32, 10)))
+    assert sig["buy"].iloc[-1] and pos["out"].iloc[-1]
+    assert st["label"] == "Draußen bleiben" and "Kaufsignal" in st["text"]

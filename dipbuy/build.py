@@ -108,7 +108,7 @@ def score_parts(sig) -> list:
 def build(src, out_path: Path) -> dict:
     d = gather_market(src)
     sig = ind.signals(d["spx"], d["vix"], d["fear_greed"])
-    pos = ind.hold_state(d["ndx"], sig["buy"])
+    pos = ind.hold_state(d["ndx"], sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)
     last_sig, last_pos = sig.iloc[-1], pos.iloc[-1]
     asof = sig.index[-1]
 
@@ -116,7 +116,7 @@ def build(src, out_path: Path) -> dict:
     for t, name in config.INDEXES.items():
         s = d["spx"] if t == "^GSPC" else (d["ndx"] if t == "^NDX" else d["world"])
         if s is not None:
-            exits.append({"name": name, **ind.exit_signal(s, sig["buy"])})
+            exits.append({"name": name, **ind.exit_signal(s, sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)})
 
     hist = pos.loc[config.HISTORY_FROM:]
     hsig = sig.reindex(hist.index)
@@ -125,7 +125,7 @@ def build(src, out_path: Path) -> dict:
         "ndx": [clean(round(float(v), 1)) for v in hist["close"]],
         "sma200": [clean(round(float(v), 1)) for v in hist["sma200"]],
         "score": [None if pd.isna(v) else int(round(v)) for v in hsig["score"]],
-        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hsig["buy_start"].fillna(False).astype(bool) | hist["reentry"]]],
+        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[(hsig["buy_start"].fillna(False).astype(bool) & ~hist["out"]) | hist["reentry"]]],
         "sells": [x.strftime("%Y-%m-%d") for x in hist.index[hist["sell"]]],
     }
 

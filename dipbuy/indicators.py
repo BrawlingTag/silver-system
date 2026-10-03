@@ -158,6 +158,10 @@ def status(sig, pos) -> dict:
     if pos["sell_recent"] and pos["out"]:
         return {"color": "red", "label": "Verkaufen",
                 "text": f"Der Nasdaq 100 ist mehr als {config.EXIT_BELOW:g} % unter seine 200-Tage-Linie gefallen. Hebel raus."}
+    if sig["buy_recent"] and pos["out"]:
+        return {"color": "red", "label": "Draußen bleiben",
+                "text": f"Kaufsignal, aber der Nasdaq 100 liegt mehr als {config.EXIT_BELOW:g} % unter seiner 200-Tage-Linie. "
+                        "So ein Kauf hat 2008 und 2022 viel gekostet. Warten, bis er wieder näher an der Linie ist."}
     if sig["buy_recent"]:
         return {"color": "green", "label": "Kaufen",
                 "text": "Panik am Markt und der RSI dreht nach oben. Je höher der Score, desto stärker das Signal."}
@@ -176,9 +180,9 @@ def status(sig, pos) -> dict:
             "text": f"{met} von 3 Panik-Bedingungen erfüllt. Halten, was du hast."}
 
 
-def exit_signal(close: pd.Series, buy: pd.Series = None, exit_below: float = None) -> dict:
+def exit_signal(close: pd.Series, buy: pd.Series = None, exit_below: float = None, buy_overrides: bool = True) -> dict:
     """Heutiger Stand von `hold_state` für einen Index."""
-    st = hold_state(close, buy, exit_below)
+    st = hold_state(close, buy, exit_below, buy_overrides=buy_overrides)
     st = st[st["sma200"].notna()]
     if st.empty:
         return {"hold": None}
