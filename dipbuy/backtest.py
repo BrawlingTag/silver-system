@@ -17,8 +17,7 @@ from . import indicators as ind
 
 log = logging.getLogger("dipbuy")
 
-START = "2004-06-01"   # Vorlauf für 200-Tage-Linien und 52-Wochen-Hochs
-EVAL_FROM = "2007-01-01"
+EVAL_FROM = config.HISTORY_FROM
 NEW_EPISODE_AFTER = 20  # Handelstage ohne Signal, bevor ein neues Signal zählt
 THRESHOLDS = [45, 50, 55, 60]
 RSI_MAS = [3, 5, 8]
@@ -36,28 +35,6 @@ def trend_filters(spx: pd.Series) -> dict:
 HORIZONS = {"1M": 21, "3M": 63, "6M": 126, "12M": 252}
 # Grobe jährliche Kosten gehebelter ETFs (Gebühr plus Finanzierung)
 LEVER_COST = {2: 0.015, 3: 0.03}
-
-
-class LongHistory:
-    """Dieselbe Schnittstelle wie dipbuy.fetch, aber mit der längsten verfügbaren Historie."""
-
-    def __init__(self, fetch):
-        self.f = fetch
-
-    def closes(self, tickers, period="3y"):
-        return self.f.closes(tickers, start=START)
-
-    def fear_greed(self):
-        return self.f.fear_greed(days=8000)
-
-    def breadth(self):
-        return self.f.breadth(start=START)
-
-    def fred(self, series_id):
-        return self.f.fred(series_id, days=9000)
-
-    def analyst_info(self, ticker):
-        return {}
 
 
 def leveraged(close: pd.Series, lever: int) -> pd.Series:
@@ -270,7 +247,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     from . import fetch
 
-    result = run(LongHistory(fetch))
+    result = run(fetch)
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("backtest.json")
     out.write_text(json.dumps(build.clean(result), ensure_ascii=False, allow_nan=False))
     text = report(result)
