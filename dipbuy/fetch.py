@@ -17,14 +17,30 @@ UA = {
 }
 
 
-def closes(tickers: list[str], period: str = "3y", start: str | None = None) -> pd.DataFrame:
-    """Schlusskurse (dividendenbereinigt) als DataFrame, eine Spalte je Ticker."""
-    span = {"start": start} if start else {"period": period}
-    data = yf.download(tickers, **span, auto_adjust=True, progress=False, threads=True)
+def _download(tickers: list[str], span: dict, threads: bool) -> pd.DataFrame:
+    data = yf.download(tickers, **span, auto_adjust=True, progress=False, threads=threads)
     df = data["Close"]
     if isinstance(df, pd.Series):
         df = df.to_frame(tickers[0])
     df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
+    return df
+
+
+def closes(tickers: list[str], period: str = "3y", start: str | None = None) -> pd.DataFrame:
+    """Schlusskurse (dividendenbereinigt) als DataFrame, eine Spalte je Ticker.
+
+    Beim parallelen Download sperrt sich yfinance gelegentlich selbst ("database is locked");
+    fehlende Ticker werden deshalb einmal nacheinander nachgeladen.
+    """
+    span = {"start": start} if start else {"period": period}
+    df = _download(tickers, span, threads=True)
+    missing = [t for t in tickers if t not in df or df[t].dropna().empty]
+    if missing:
+        log.info("Lade %d fehlende Ticker nach: %s", len(missing), ", ".join(missing[:10]))
+        retry = _download(missing, span, threads=False)
+        for t in missing:
+            if t in retry and not retry[t].dropna().empty:
+                df = df.drop(columns=t, errors="ignore").join(retry[t], how="outer")
     return df
 
 
