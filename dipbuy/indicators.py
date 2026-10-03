@@ -147,6 +147,11 @@ def market_score(d: dict) -> pd.DataFrame:
         veto = (d["sahm"].reindex(idx) >= config.VETO_SAHM) & credit_stress(d, idx)
     out["veto"] = veto
     out["trend_ok"] = d["spx"] >= d["spx"].rolling(200).mean()
+    out["rsi"] = market_rsi(d)
+    setup, trigger = dip_entry(out["score"], out["trend_ok"], out["rsi"])
+    out["setup"] = setup
+    out["trigger"] = trigger
+    out["triggered"] = trigger.astype(float).rolling(config.TRIGGER_HOLD, min_periods=1).max().astype(bool)
     out.loc[veto, "score"] = out.loc[veto, "score"].clip(upper=config.VETO_CAP)
 
     for name, parts in (("angst", angst_p), ("wende", wende_p), ("makro", makro_p)):
@@ -155,10 +160,39 @@ def market_score(d: dict) -> pd.DataFrame:
     return out
 
 
-def signal(score: float, trend_ok: bool = True) -> dict:
+def market_rsi(d: dict) -> pd.Series:
+    """Mittel aus RSI S&P 500 und RSI Nasdaq 100."""
+    return (rsi(d["spx"]) + rsi(d["ndx"]).reindex(d["spx"].index)) / 2
+
+
+def rsi_cross_up(r: pd.Series, ma: int) -> pd.Series:
+    """Tage, an denen der RSI von unten über seinen gleitenden Durchschnitt kreuzt."""
+    m = r.rolling(ma).mean()
+    return (r > m) & (r.shift(1) <= m.shift(1))
+
+
+def dip_entry(score: pd.Series, trend_ok: pd.Series, r: pd.Series,
+              ma: int = None, setup_days: int = None, green: float = None) -> tuple[pd.Series, pd.Series]:
+    """Setup = Score war in den letzten Tagen grün (im Aufwärtstrend); Trigger = RSI kreuzt währenddessen nach oben."""
+    ma = ma or config.RSI_MA
+    setup_days = setup_days or config.SETUP_DAYS
+    green = config.GREEN_FROM if green is None else green
+    hot = (score >= green) & trend_ok.reindex(score.index, fill_value=False)
+    setup = hot.astype(float).rolling(setup_days, min_periods=1).max().astype(bool)
+    trigger = setup & rsi_cross_up(r.reindex(score.index), ma)
+    return setup, trigger
+
+
+def signal(score: float, trend_ok: bool = True, setup: bool = False, triggered: bool = False) -> dict:
     if score is None or np.isnan(score):
         return {"color": "grey", "label": "Keine Daten", "lever": "-"}
+    if config.RSI_TRIGGER and triggered:
+        return {"color": "green", "label": "Dip-Ende: kaufen", "lever": "2x, mit viel Risikobereitschaft 3x"}
+    if config.RSI_TRIGGER and setup:
+        return {"color": "yellow", "label": "Dip läuft", "lever": f"warten, bis der RSI über seinen {config.RSI_MA}-Tage-Schnitt dreht"}
     if score >= config.GREEN_FROM:
+        if config.RSI_TRIGGER and trend_ok:
+            return {"color": "yellow", "label": "Dip läuft", "lever": f"warten, bis der RSI über seinen {config.RSI_MA}-Tage-Schnitt dreht"}
         if trend_ok or not config.TREND_FILTER:
             return {"color": "green", "label": "Dip kaufen", "lever": "2x, mit viel Risikobereitschaft 3x"}
         return {"color": "yellow", "label": "Dip im Abwärtstrend", "lever": "kein Hebel, bis der S&P 500 wieder über der 200-Tage-Linie liegt"}

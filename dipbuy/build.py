@@ -166,7 +166,7 @@ def build(src, out_path: Path) -> dict:
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "asof": asof.strftime("%Y-%m-%d"),
         "score": round(score, 1),
-        "signal": ind.signal(score, bool(last["trend_ok"])),
+        "signal": ind.signal(score, bool(last["trend_ok"]), bool(last["setup"]), bool(last["triggered"])),
         "trend_ok": bool(last["trend_ok"]),
         "summary": summary_text(last, dip),
         "dip": dip,

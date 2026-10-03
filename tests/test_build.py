@@ -34,7 +34,20 @@ def test_small_correction_raises_score(tmp_path):
     # im intakten Aufwärtstrend wird aus der 6-%-Korrektur ein Kaufsignal
     six = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=0, drift=0.0012)
     assert six["trend_ok"]
-    assert six["signal"]["color"] == "green", six["score"]
+    assert six["signal"]["label"] == "Dip läuft", six["score"]
+
+
+def test_rsi_turn_after_correction_gives_buy(tmp_path):
+    data = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=2, recovery=0.01, drift=0.0012)
+    assert data["trend_ok"]
+    assert data["signal"]["label"] == "Dip-Ende: kaufen", (data["score"], data["signal"])
+
+
+def test_rsi_cross_up():
+    idx = pd.bdate_range("2025-01-01", periods=8)
+    r = pd.Series([50, 40, 30, 25, 22, 28, 35, 40], index=idx, dtype=float)
+    cross = ind.rsi_cross_up(r, 3)
+    assert list(cross[cross].index) == [idx[5]]
 
 
 def test_recovery_shows_stabilisation(tmp_path):

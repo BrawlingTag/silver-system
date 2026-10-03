@@ -32,6 +32,14 @@ GREEN_FROM = 50
 # Im Abwärtstrend (2008, 2022) haben Dip-Käufe mit Hebel im Backtest viel Geld gekostet.
 TREND_FILTER = True
 
+# Dip-Ende: Ist der Score in den letzten SETUP_DAYS Handelstagen grün gewesen (Dip läuft),
+# kommt das Kaufsignal erst, wenn der RSI über seinen kurzen Durchschnitt (RSI_MA Tage) kreuzt.
+# Das Signal bleibt danach TRIGGER_HOLD Handelstage sichtbar.
+RSI_TRIGGER = True
+RSI_MA = 5
+SETUP_DAYS = 10
+TRIGGER_HOLD = 3
+
 # Die Stabilisierungs-Säule zählt nur, wenn es vorher einen Rücksetzer gab:
 # S&P 500 mindestens so weit unter dem Hoch innerhalb der letzten 20 Handelstage
 DIP_MIN_DRAWDOWN = 5.0
