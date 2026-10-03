@@ -173,13 +173,18 @@ def rsi_cross_up(r: pd.Series, ma: int) -> pd.Series:
 
 def dip_entry(score: pd.Series, trend_ok: pd.Series, r: pd.Series,
               ma: int = None, setup_days: int = None, green: float = None) -> tuple[pd.Series, pd.Series]:
-    """Setup = Score war in den letzten Tagen grün (im Aufwärtstrend); Trigger = RSI kreuzt währenddessen nach oben."""
+    """Setup = Score war in den letzten Tagen grün (im Aufwärtstrend); Trigger = RSI kreuzt währenddessen nach oben.
+
+    Der Trigger braucht den Aufwärtstrend auch am Kauftag selbst, sonst käme im Crash (März 2020)
+    ein Kaufsignal, obwohl der Index schon unter die 200-Tage-Linie gefallen ist.
+    """
     ma = ma or config.RSI_MA
     setup_days = setup_days or config.SETUP_DAYS
     green = config.GREEN_FROM if green is None else green
     hot = (score >= green) & trend_ok.reindex(score.index, fill_value=False)
     setup = hot.astype(float).rolling(setup_days, min_periods=1).max().astype(bool)
-    trigger = setup & rsi_cross_up(r.reindex(score.index), ma)
+    trend = trend_ok.reindex(score.index, fill_value=False).astype(bool)
+    trigger = setup & trend & rsi_cross_up(r.reindex(score.index), ma)
     return setup, trigger
 
 
@@ -188,8 +193,10 @@ def signal(score: float, trend_ok: bool = True, setup: bool = False, triggered: 
         return {"color": "grey", "label": "Keine Daten", "lever": "-"}
     if config.RSI_TRIGGER and triggered:
         return {"color": "green", "label": "Dip-Ende: kaufen", "lever": "2x, mit viel Risikobereitschaft 3x"}
-    if config.RSI_TRIGGER and setup:
+    if config.RSI_TRIGGER and setup and (trend_ok or not config.TREND_FILTER):
         return {"color": "yellow", "label": "Dip läuft", "lever": f"warten, bis der RSI über seinen {config.RSI_MA}-Tage-Schnitt dreht"}
+    if config.RSI_TRIGGER and setup:
+        return {"color": "yellow", "label": "Dip im Abwärtstrend", "lever": "kein Hebel, bis der S&P 500 wieder über der 200-Tage-Linie liegt"}
     if score >= config.GREEN_FROM:
         if config.RSI_TRIGGER and trend_ok:
             return {"color": "yellow", "label": "Dip läuft", "lever": f"warten, bis der RSI über seinen {config.RSI_MA}-Tage-Schnitt dreht"}

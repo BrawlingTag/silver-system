@@ -68,16 +68,22 @@ def strategies(d: dict, sc: pd.DataFrame, start) -> dict:
     instant = (sc["score"] >= config.GREEN_FROM) & sc["trend_ok"].astype(bool)
     above_ndx = ~below(ndx)
 
+    def buy(entries, close, buffer=0.0):
+        # Nie kaufen, solange für denselben Index das Ausstiegssignal gilt
+        return entries & ~below(close, buffer)
+
     plan = {
         "Nasdaq 100 halten (ohne Hebel)": (ndx, 1, always, never),
         "Nasdaq 100 3x halten": (ndx, 3, always, never),
         "Nasdaq 100 3x, nur über 200-Tage-Linie": (ndx, 3, above_ndx, below(ndx)),
-        "Nasdaq 100 3x, Dip-Signal + Ausstieg": (ndx, 3, trigger, below(ndx)),
-        "Nasdaq 100 3x, Dip sofort + Ausstieg": (ndx, 3, instant, below(ndx)),
-        "Nasdaq 100 3x, Dip-Signal + Ausstieg 3 % unter Linie": (ndx, 3, trigger, below(ndx, 0.03)),
-        "Nasdaq 100 2x, Dip-Signal + Ausstieg": (ndx, 2, trigger, below(ndx)),
+        "Nasdaq 100 3x, nur über 200-Tage-Linie, Ausstieg 3 % darunter": (ndx, 3, above_ndx, below(ndx, 0.03)),
+        "Nasdaq 100 3x, Dip-Signal + Ausstieg": (ndx, 3, buy(trigger, ndx), below(ndx)),
+        "Nasdaq 100 3x, Dip sofort + Ausstieg": (ndx, 3, buy(instant, ndx), below(ndx)),
+        "Nasdaq 100 3x, Dip-Signal + Ausstieg 3 % unter Linie": (ndx, 3, buy(trigger, ndx, 0.03), below(ndx, 0.03)),
+        "Nasdaq 100 2x, Dip-Signal + Ausstieg": (ndx, 2, buy(trigger, ndx), below(ndx)),
         "S&P 500 halten (ohne Hebel)": (spx, 1, always, never),
-        "S&P 500 2x, Dip-Signal + Ausstieg": (spx, 2, trigger, below(spx)),
+        "S&P 500 2x, nur über 200-Tage-Linie": (spx, 2, ~below(spx), below(spx)),
+        "S&P 500 2x, Dip-Signal + Ausstieg": (spx, 2, buy(trigger, spx), below(spx)),
     }
     return {name: simulate(c, lev, e, x, start) for name, (c, lev, e, x) in plan.items()}
 

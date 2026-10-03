@@ -37,3 +37,21 @@ def test_simulate_enters_and_exits():
     assert r["trades"] == 1
     assert r["final"] == 1.21
     assert r["trade_list"][0][2] == 21.0
+
+
+def test_trigger_needs_uptrend_on_buy_day():
+    import pandas as pd
+    from dipbuy import indicators as ind
+
+    idx = pd.bdate_range("2024-01-01", periods=12)
+    score = pd.Series([60.0] * 12, index=idx)
+    r = pd.Series([50, 45, 40, 35, 30, 28, 26, 25, 24, 35, 45, 50], index=idx, dtype=float)
+    trend = pd.Series(True, index=idx)
+    _, trigger = ind.dip_entry(score, trend, r, ma=3, setup_days=10)
+    assert trigger.any()
+
+    broken = trend.copy()
+    broken.iloc[5:] = False  # Trend bricht während des Dips
+    setup, trigger = ind.dip_entry(score, broken, r, ma=3, setup_days=10)
+    assert setup.iloc[-1] and not trigger.any()
+    assert ind.signal(60.0, False, True, False)["label"] == "Dip im Abwärtstrend"
