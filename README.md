@@ -1,31 +1,33 @@
-# Dip-Buy-Score
+# Dip-Buy
 
-Eine kleine Web-App, die jeden US-Handelstag einen Score von 0 bis 100 berechnet: Lohnt es sich gerade, gehebelte Indizes (S&P 500, Nasdaq 100, MSCI World) oder Growth-Aktien zu kaufen, um eine Markterholung mitzunehmen?
+Eine kleine Web-App, die jeden US-Handelstag prüft, ob gerade ein guter Moment ist, gehebelt in den Nasdaq 100 (oder Growth-Aktien) einzusteigen, um eine Erholung nach einem Rücksetzer mitzunehmen.
 
 Die Seite läuft kostenlos auf GitHub Pages und aktualisiert sich automatisch werktags nach US-Börsenschluss.
 
-## Wie der Score entsteht
+## Die Regeln
 
-| Teilscore | Gewicht | Indikatoren |
-| --- | --- | --- |
-| Angst im Markt | 60 % | CNN Fear & Greed, VIX, VIX/VIX3M, RSI (überverkauft zählt sofort), Abstand der Indizes vom Hoch, Anteil S&P-500-Aktien über 200-Tage-Linie. Skaliert so, dass schon eine Korrektur von rund 6 % deutlich zählt. |
-| Stabilisierung | 15 % | VIX kommt vom 10-Tage-Hoch zurück, Index erholt sich vom 5-Tage-Tief. Zählt nur nach einem Rücksetzer von mindestens 5 %. |
-| Makro | 25 % | High-Yield-Spread (für ältere Daten Baa-Spread), Änderung über 20 Tage, Sahm-Regel |
+**Score (0 bis 100):** Je tiefer der S&P 500 unter seinem Allzeithoch, je höher der VIX und je tiefer CNN Fear & Greed, desto höher der Score und desto stärker das Kaufsignal. Jeder der drei Teile hat an seiner Schwelle 50 Punkte.
 
-- **Ampel:** unter 35 Rot (kein Dip), 35 bis 50 Gelb (leichter Rücksetzer), ab 50 Grün (Dip kaufen, 2x, mit viel Risikobereitschaft 3x).
-- **Trendfilter:** Grün nur, solange der S&P 500 über seiner 200-Tage-Linie liegt. Darunter bleibt es Gelb.
-- **Veto:** Löst die Sahm-Regel aus und steigen die Kreditspreads schnell, bleibt der Score höchstens Gelb.
-- **Ausstiegssignal:** Hebel nur halten, solange der Index über seiner 200-Tage-Linie liegt.
-- **Watchlist:** 40 große Growth-Werte aus dem Nasdaq 100, bewertet nach Rücksetzer, RSI, Kursziel-Abstand, Analysten-Rating und Änderung der Gewinnschätzung.
+**Kaufen**, wenn Panik am Markt ist und sie dreht. Panik heißt: In den letzten 10 Handelstagen war
 
-Backtest 2007 bis 2026 mit diesen Einstellungen: 44 Signale (rund 2 pro Jahr), Median 27 Tage vom Hoch bis zum Signal. Nasdaq 100 mit 3x Hebel lag 3 Monate nach einem Signal im Schnitt bei +20,7 % (81 % der Fälle positiv), bei einem Kauf an einem beliebigen Tag bei +11,0 %. Alle Schwellen stehen in `dipbuy/config.py`.
+1. der S&P 500 mindestens 4 % unter seinem Allzeithoch,
+2. der VIX über 26 und
+3. CNN Fear & Greed unter 21.
+
+Gekauft wird, sobald dann der RSI (14 Tage) des S&P 500 über dem Schnitt der letzten 2 Tage liegt. So steigt man nicht ein, solange es noch keine Erholung gibt.
+
+**Verkaufen**, wenn der Nasdaq 100 mehr als 3 % unter seine 200-Tage-Linie fällt. **Wieder einsteigen** beim nächsten Kaufsignal oder wenn er wieder über der Linie schließt. Ein Kaufsignal gilt auch, wenn der Nasdaq 100 tief unter seiner Linie liegt (`BUY_BELOW_EXIT` in `dipbuy/config.py`).
+
+Im Backtest 2007 bis 2026 machte Nasdaq 100 mit 3x Hebel nach diesen Regeln aus 1 € rund 149 € (+28,8 % pro Jahr, größter Verlust −93 %, weil man im September 2008 mitten in den Absturz gekauft hätte). Kaufsignale unter der Verkaufsmarke auszulassen hätte 150 € bei −76 % gebracht. Dauerhaft 3x halten brachte 138 € bei −95 %, ohne Hebel 18 €. Die Kaufsignale allein waren nicht besser als ein beliebiger Tag: im Schnitt +8,7 % nach 3 Monaten mit 3x, gegenüber +11,0 % an irgendeinem Tag.
+
+CNN Fear & Greed gibt es nur für die letzten Jahre; im Backtest davor zählt nur S&P 500 und VIX. Die Watchlist bewertet 40 große Growth-Werte aus dem Nasdaq 100 nach Rücksetzer, RSI, Kursziel-Abstand, Analysten-Rating und Änderung der Gewinnschätzung. Alle Werte stehen in `dipbuy/config.py`.
 
 ## Aufbau
 
-- `dipbuy/fetch.py` holt die Daten (Yahoo Finance, CNN, FRED, Wikipedia). Fällt eine Quelle aus, fehlt nur ihr Indikator.
-- `dipbuy/indicators.py` rechnet Indikatoren und Scores.
+- `dipbuy/fetch.py` holt die Daten (Yahoo Finance, CNN). Fällt CNN aus, zählt die CNN-Bedingung als erfüllt.
+- `dipbuy/indicators.py` berechnet Score, Kauf- und Verkaufssignal für jeden Tag.
 - `dipbuy/build.py` schreibt alles nach `site/data.json`.
-- `site/index.html` ist die Seite. Der Verlauf reicht bis 2007 zurück, mit Zeitraumauswahl, Vollbild und Kaufsignalen als grüne Punkte.
+- `site/index.html` ist die Seite. Der Verlauf reicht bis 2007 zurück, mit Zeitraumauswahl, Vollbild sowie Kauf- und Verkaufssignalen als Punkte.
 - `.github/workflows/update.yml` läuft werktags um 22:15 UTC, testet, rechnet und veröffentlicht.
 
 Lokal ausprobieren:
@@ -40,4 +42,4 @@ Keine Anlageberatung.
 
 ## Backtest
 
-`python -m dipbuy.backtest` rechnet den Score ab 2007 rückwirkend und wertet jedes Kaufsignal aus: wie lange nach dem Hoch es kam, ob vor oder nach dem Tiefpunkt, und wie sich S&P 500, Nasdaq 100 und gehebelte Varianten danach entwickelt haben. Auf GitHub läuft er unter Actions → Backtest → "Run workflow".
+`python -m dipbuy.backtest` prüft die Regeln ab 2007: wie oft ein Kaufsignal kam, wie weit der Nasdaq danach noch fiel, und was Kaufen beim Kaufsignal und Verkaufen beim Verkaufssignal mit 1x, 2x, 3x und 5x Hebel gebracht hätte. Auf GitHub läuft er unter Actions → Backtest → "Run workflow".

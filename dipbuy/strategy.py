@@ -1,4 +1,4 @@
-"""Strategie-Simulation: Kauf beim Dip-Signal, Verkauf beim Ausstiegssignal (Index unter 200-Tage-Linie).
+"""Strategie-Simulation: Kauf beim Kaufsignal, Verkauf beim Verkaufssignal (Index unter 200-Tage-Linie).
 
 Zwischen Verkauf und nächstem Kauf liegt das Geld unverzinst als Cash. Signale gelten zum Schlusskurs,
 gehandelt wird damit ab dem nächsten Tag.
@@ -78,49 +78,43 @@ def simulate(close: pd.Series, lever: int, entries: pd.Series, exits: pd.Series,
     }
 
 
-def strategies(d: dict, sc: pd.DataFrame, start) -> dict:
-    spx, ndx = d["spx"], d["ndx"]
-    idx = sc.index
+def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
+    """Kauf beim Kaufsignal, Verkauf beim Verkaufssignal, verglichen mit Kaufen und Halten."""
+    from . import indicators as ind
 
-    def below(close, buffer=0.0):
-        sma = close.rolling(200).mean()
-        return (close < sma * (1 - buffer)).reindex(idx, fill_value=False)
-
-    always = pd.Series(True, index=idx)
-    never = pd.Series(False, index=idx)
-    trigger = sc["trigger"].astype(bool)
-    instant = (sc["score"] >= config.GREEN_FROM) & sc["trend_ok"].astype(bool)
-    above_ndx = ~below(ndx)
-
-    def buy(entries, close, buffer=0.0):
-        # Nie kaufen, solange für denselben Index das Ausstiegssignal gilt
-        return entries & ~below(close, buffer)
-
+    ndx, spx = d["ndx"].dropna(), d["spx"].dropna()
+    buy = sig["buy"]
+    pos = ind.hold_state(ndx, buy, buy_overrides=config.BUY_BELOW_EXIT)
+    pos_spx = ind.hold_state(spx, buy, buy_overrides=config.BUY_BELOW_EXIT)
+    other = ind.hold_state(ndx, buy, buy_overrides=not config.BUY_BELOW_EXIT)
+    trend = ind.hold_state(ndx)
+    stop10 = ind.hold_state(ndx, buy, stop=10)  # Stopp-Varianten: Kaufsignal auch unter der Verkaufsmarke
+    stop20 = ind.hold_state(ndx, buy, stop=20)
+    always = pd.Series(True, index=ndx.index)
+    never = pd.Series(False, index=ndx.index)
+    # Investiert, solange die Seite "Halten" zeigt; raus am Tag des Verkaufssignals
+    follow = lambda st: (~st["out"], st["sell"])  # noqa: E731
     plan = {
         "Nasdaq 100 halten (ohne Hebel)": (ndx, 1, always, never),
         "Nasdaq 100 3x halten": (ndx, 3, always, never),
-        "Nasdaq 100 3x, nur über 200-Tage-Linie": (ndx, 3, above_ndx, below(ndx)),
-        "Nasdaq 100 3x, nur über 200-Tage-Linie, Ausstieg 3 % darunter": (ndx, 3, above_ndx, below(ndx, 0.03)),
-        "Nasdaq 100 3x, Dip-Signal + Ausstieg": (ndx, 3, buy(trigger, ndx), below(ndx)),
-        "Nasdaq 100 3x, Dip sofort + Ausstieg": (ndx, 3, buy(instant, ndx), below(ndx)),
-        "Nasdaq 100 3x, Dip-Signal + Ausstieg 3 % unter Linie": (ndx, 3, buy(trigger, ndx, 0.03), below(ndx, 0.03)),
-        "Nasdaq 100 2x, Dip-Signal + Ausstieg": (ndx, 2, buy(trigger, ndx), below(ndx)),
-        "Nasdaq 100 5x täglich, halten": (ndx, 5, always, never),
-        "Nasdaq 100 5x täglich, nur über 200-Tage-Linie, Ausstieg 3 % darunter": (ndx, 5, above_ndx, below(ndx, 0.03)),
-        "Nasdaq 100 5x täglich, Dip-Signal + Ausstieg": (ndx, 5, buy(trigger, ndx), below(ndx)),
-        "Nasdaq 100 5x fest, halten": (ndx, 5, always, never, "fest"),
-        "Nasdaq 100 5x fest, nur über 200-Tage-Linie, Ausstieg 3 % darunter": (ndx, 5, above_ndx, below(ndx, 0.03), "fest"),
-        "Nasdaq 100 5x fest, Dip-Signal + Ausstieg": (ndx, 5, buy(trigger, ndx), below(ndx), "fest"),
-        "S&P 500 halten (ohne Hebel)": (spx, 1, always, never),
-        "S&P 500 2x, nur über 200-Tage-Linie": (spx, 2, ~below(spx), below(spx)),
-        "S&P 500 2x, Dip-Signal + Ausstieg": (spx, 2, buy(trigger, spx), below(spx)),
+        "Nasdaq 100 2x, Regeln": (ndx, 2, *follow(pos)),
+        "Nasdaq 100 3x, Regeln": (ndx, 3, *follow(pos)),
+        "Nasdaq 100 3x, nur Kaufsignal ohne Wiedereinstieg": (ndx, 3, buy, pos["sell"]),
+        "Nasdaq 100 3x, nur 200-Tage-Linie (ohne Kaufsignal)": (ndx, 3, *follow(trend)),
+        ("Nasdaq 100 3x, Kaufsignal nur über der Verkaufsmarke" if config.BUY_BELOW_EXIT
+         else "Nasdaq 100 3x, Kaufsignal auch unter der Verkaufsmarke"): (ndx, 3, *follow(other)),
+        "Nasdaq 100 3x, Regeln, Stopp 10 % unter Kaufkurs": (ndx, 3, *follow(stop10)),
+        "Nasdaq 100 3x, Regeln, Stopp 20 % unter Kaufkurs": (ndx, 3, *follow(stop20)),
+        "S&P 500 3x, Regeln": (spx, 3, *follow(pos_spx)),
+        "Nasdaq 100 5x täglich, Regeln": (ndx, 5, *follow(pos)),
+        "Nasdaq 100 5x fest, Regeln": (ndx, 5, *follow(pos), "fest"),
     }
     return {name: simulate(*args[:4], start, *args[4:]) for name, args in plan.items()}
 
 
 def report(results: dict) -> list:
     lines = [
-        "## Strategie: Kauf bei Signal, Verkauf beim Ausstiegssignal",
+        "## Strategie: Kauf beim Kaufsignal, Verkauf beim Verkaufssignal",
         "",
         "| Strategie | Endwert je 1 € | Rendite p.a. | Max. Rückgang | Zeit investiert | Trades | Gewinn-Trades | Schnitt je Trade | Haltedauer Median (Tage) | Liquidiert |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -132,7 +126,7 @@ def report(results: dict) -> list:
             f"| {r['median_days'] if r['median_days'] is not None else '–'} | {r['liquidated'] or 'nein'} |"
         )
     lines.append("")
-    for name in ("Nasdaq 100 3x, Dip-Signal + Ausstieg", "Nasdaq 100 5x fest, Dip-Signal + Ausstieg"):
+    for name in ("Nasdaq 100 3x, Regeln",):
         main = results.get(name)
         if main:
             lines += [f"### Trades: {name}", "", "| Kauf | Verkauf | Ergebnis |", "| --- | --- | --- |"]

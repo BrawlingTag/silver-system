@@ -1,7 +1,6 @@
-"""Reine Rechenfunktionen. Jeder Indikator wird auf 0-100 abgebildet (100 = stärkstes Kaufsignal).
+"""Reine Rechenfunktionen auf pandas-Series mit Datumsindex.
 
-Alle Funktionen arbeiten auf pandas-Series mit Datumsindex, damit derselbe Code
-den heutigen Wert und den historischen Verlauf liefert.
+Derselbe Code liefert den heutigen Stand und den ganzen Verlauf (für Seite und Backtest).
 """
 
 import numpy as np
@@ -29,201 +28,174 @@ def drawdown(close: pd.Series, window: int = 252) -> pd.Series:
     return (1 - close / peak) * 100
 
 
-def weighted_mean(parts: dict, weights: dict) -> pd.Series:
-    """Gewichteter Mittelwert je Datum; fehlende Werte werden übersprungen."""
-    frame = pd.DataFrame(parts)
-    w = pd.Series({k: weights[k] for k in frame.columns})
-    mask = frame.notna()
-    total = (frame.fillna(0) * w).sum(axis=1)
-    norm = (mask * w).sum(axis=1)
-    return (total / norm.replace(0, np.nan))
+def steps(x: pd.Series, calm: float, threshold: float, extreme: float) -> pd.Series:
+    """0 Punkte bei `calm`, 50 an der Schwelle, 100 bei `extreme`, linear dazwischen."""
+    return lin(x, calm, threshold) / 2 + lin(x, threshold, extreme) / 2
 
 
-ANGST_WEIGHTS = {
-    "fear_greed": 1.5, "vix": 1.5, "vix_term": 1.0, "rsi": 1.5,
-    "dd_spx": 1.0, "dd_ndx": 1.0, "dd_world": 0.5, "breadth": 1.0,
-}
-WENDE_WEIGHTS = {"vix_falling": 1.0, "bounce": 1.0}
-MAKRO_WEIGHTS = {"hy_level": 1.0, "hy_trend": 1.0, "sahm": 1.0}
+def recent(flag: pd.Series, window: int) -> pd.Series:
+    """War `flag` in den letzten `window` Handelstagen (heute eingeschlossen) mindestens einmal wahr?"""
+    return flag.astype(float).rolling(window, min_periods=1).max().astype(bool)
 
 
-def angst_parts(d: dict) -> dict:
-    """Wie tief und wie panisch ist der Rücksetzer? Skaliert so, dass schon eine Korrektur
-    von rund 6 % deutlich zählt; größere Crashs erreichen schnell die vollen 100.
+def signals(spx: pd.Series, vix: pd.Series, fear_greed: pd.Series = None, ath_pct: float = None,
+            vix_min: float = None, fg_max: float = None, window: int = None, rsi_ma: int = None,
+            hold: int = None) -> pd.DataFrame:
+    """Kaufsignal und Score für jeden Handelstag.
 
-    d enthält Series: spx, ndx, world, vix, vix3m, fear_greed, breadth (einzelne dürfen None sein).
+    Panik, wenn in den letzten `window` Tagen jede dieser Bedingungen erfüllt war:
+      1. S&P 500 mindestens `ath_pct` % unter seinem Allzeithoch
+      2. VIX über `vix_min`
+      3. CNN Fear & Greed unter `fg_max` (Tage ohne CNN-Wert zählen als erfüllt, CNN gibt es nur für wenige Jahre)
+    Kauf, wenn außerdem der RSI des S&P 500 heute über dem Schnitt der letzten `rsi_ma` Tage liegt.
     """
-    p = {}
-    if d.get("fear_greed") is not None:
-        p["fear_greed"] = lin(d["fear_greed"], 50, 15)
-    p["vix"] = lin(d["vix"], 15, 30)
-    if d.get("vix3m") is not None:
-        p["vix_term"] = lin(d["vix"] / d["vix3m"], 0.85, 1.0)
-    # RSI überverkauft zählt sofort, ohne auf den Wiederanstieg zu warten
-    p["rsi"] = (lin(rsi(d["spx"]), 50, 25) + lin(rsi(d["ndx"]), 50, 25).reindex(d["spx"].index)) / 2
-    p["dd_spx"] = lin(drawdown(d["spx"]), 0, 10)
-    p["dd_ndx"] = lin(drawdown(d["ndx"]), 0, 12)
-    if d.get("world") is not None:
-        p["dd_world"] = lin(drawdown(d["world"]), 0, 10)
-    if d.get("breadth") is not None:
-        p["breadth"] = lin(d["breadth"], 65, 25)
-    return p
+    ath_pct = config.ATH_PCT if ath_pct is None else ath_pct
+    vix_min = config.VIX_MIN if vix_min is None else vix_min
+    fg_max = config.FG_MAX if fg_max is None else fg_max
+    window = window or config.SETUP_WINDOW
+    rsi_ma = rsi_ma or config.RSI_MA
+    hold = hold or config.SIGNAL_HOLD
 
+    spx = spx.dropna()
+    idx = spx.index
+    vix = vix.reindex(idx).ffill() if vix is not None else pd.Series(np.nan, index=idx)
+    fg = (fear_greed.reindex(idx.union(fear_greed.index)).ffill(limit=5).reindex(idx)
+          if fear_greed is not None else pd.Series(np.nan, index=idx))
+    r = rsi(spx)
+    out = pd.DataFrame({
+        "close": spx,
+        "drawdown": (1 - spx / spx.cummax()) * 100,
+        "vix": vix,
+        "fear_greed": fg,
+        "rsi": r,
+        "rsi_ma": sum(r.shift(k) for k in range(1, rsi_ma + 1)) / rsi_ma,
+    })
+    out["c_drawdown"] = recent(out["drawdown"] >= ath_pct, window)
+    out["c_vix"] = recent(out["vix"] > vix_min, window)
+    out["c_fear_greed"] = recent(fg.isna() | (fg < fg_max), window)
+    out["setup"] = out["c_drawdown"] & out["c_vix"] & out["c_fear_greed"]
+    out["turn"] = out["rsi"] > out["rsi_ma"]
+    out["buy"] = out["setup"] & out["turn"]
+    out["buy_start"] = out["buy"] & ~out["buy"].shift(1, fill_value=False)
+    out["buy_recent"] = recent(out["buy"], hold)
 
-def dip_present(spx: pd.Series) -> pd.Series:
-    dd = drawdown(spx)
-    return dd.rolling(config.DIP_LOOKBACK, min_periods=1).max() >= config.DIP_MIN_DRAWDOWN
-
-
-def wende_parts(d: dict) -> dict:
-    """Frühe Stabilisierung, ohne auf eine bestätigte Wende zu warten: VIX kommt vom Hoch zurück,
-    Index erholt sich vom 5-Tage-Tief. Zählt nur nach einem Rücksetzer."""
-    vix = d["vix"]
-    spx, ndx = d["spx"], d["ndx"].reindex(d["spx"].index)
-    bounce = lambda c: lin(c / c.rolling(5, min_periods=1).min() - 1, 0, 0.02)  # noqa: E731
-    parts = {
-        "vix_falling": lin(1 - vix / vix.rolling(10, min_periods=1).max(), 0, 0.2),
-        "bounce": (bounce(spx) + bounce(ndx)) / 2,
-    }
-    dip = dip_present(d["spx"])
-    return {k: v.where(dip, 0.0).where(v.notna()) for k, v in parts.items()}
-
-
-def makro_parts(d: dict) -> dict:
-    """Kreditspreads und Rezessionsrisiko.
-
-    FRED liefert den High-Yield-Spread nur für die letzten drei Jahre. Für ältere Tage springt
-    der Spread zwischen Baa-Unternehmensanleihen und 10-jährigen Staatsanleihen (BAA10Y) ein.
-    """
-    p = {}
-    hy, baa = d.get("hy_spread"), d.get("baa_spread")
-    if hy is not None or baa is not None:
-        level = lin(hy, 8, 4) if hy is not None else None
-        trend = lin(hy - hy.shift(20), 1.0, 0.0) if hy is not None else None
-        if baa is not None:
-            b_level, b_trend = lin(baa, 3.5, 2.0), lin(baa - baa.shift(20), 0.4, 0.0)
-            level = b_level if level is None else level.fillna(b_level)
-            trend = b_trend if trend is None else trend.fillna(b_trend)
-        p["hy_level"], p["hy_trend"] = level, trend
-    if d.get("sahm") is not None:
-        p["sahm"] = lin(d["sahm"], 0.5, 0.2)
-    return p
-
-
-def credit_stress(d: dict, idx) -> pd.Series:
-    """Kreditspreads steigen schnell: High Yield um mehr als 0,75 Pp. oder Baa um mehr als 0,3 Pp. in 20 Tagen."""
-    stress = pd.Series(False, index=idx)
-    hy, baa = d.get("hy_spread"), d.get("baa_spread")
-    hy_known = pd.Series(False, index=idx)
-    if hy is not None:
-        hy = hy.reindex(idx)
-        stress |= (hy - hy.shift(20)) > config.VETO_HY_RISE
-        hy_known = (hy - hy.shift(20)).notna()
-    if baa is not None:
-        baa = baa.reindex(idx)
-        stress |= ~hy_known & ((baa - baa.shift(20)) > 0.3)
-    return stress
-
-
-def market_score(d: dict) -> pd.DataFrame:
-    """Gesamtscore und Teilscores je Handelstag."""
-    idx = d["spx"].index
-    angst_p = {k: v.reindex(idx) for k, v in angst_parts(d).items()}
-    wende_p = {k: v.reindex(idx) for k, v in wende_parts(d).items()}
-    makro_p = {k: v.reindex(idx) for k, v in makro_parts(d).items()}
-
-    out = pd.DataFrame(index=idx)
-    out["angst"] = weighted_mean(angst_p, ANGST_WEIGHTS)
-    out["wende"] = weighted_mean(wende_p, WENDE_WEIGHTS)
-    out["makro"] = weighted_mean(makro_p, MAKRO_WEIGHTS) if makro_p else np.nan
-
-    w = config.WEIGHTS
-    sub = out[["angst", "wende", "makro"]]
-    weights = pd.Series(w)
-    out["score"] = (sub.fillna(0) * weights).sum(axis=1) / (sub.notna() * weights).sum(axis=1)
-
-    veto = pd.Series(False, index=idx)
-    if d.get("sahm") is not None:
-        veto = (d["sahm"].reindex(idx) >= config.VETO_SAHM) & credit_stress(d, idx)
-    out["veto"] = veto
-    out["trend_ok"] = d["spx"] >= d["spx"].rolling(200).mean()
-    out["rsi"] = market_rsi(d)
-    setup, trigger = dip_entry(out["score"], out["trend_ok"], out["rsi"])
-    out["setup"] = setup
-    out["trigger"] = trigger
-    out["triggered"] = trigger.astype(float).rolling(config.TRIGGER_HOLD, min_periods=1).max().astype(bool)
-    out.loc[veto, "score"] = out.loc[veto, "score"].clip(upper=config.VETO_CAP)
-
-    for name, parts in (("angst", angst_p), ("wende", wende_p), ("makro", makro_p)):
-        for k, v in parts.items():
-            out[f"{name}.{k}"] = v
+    parts = pd.DataFrame({k: steps(out[k], *config.SCORE_PARTS[k]) for k in config.SCORE_PARTS})
+    for k in parts:
+        out["score_" + k] = parts[k]
+    out["score"] = parts.mean(axis=1, skipna=True)
     return out
 
 
-def market_rsi(d: dict) -> pd.Series:
-    """Mittel aus RSI S&P 500 und RSI Nasdaq 100."""
-    return (rsi(d["spx"]) + rsi(d["ndx"]).reindex(d["spx"].index)) / 2
+def hold_state(close: pd.Series, buy: pd.Series = None, exit_below: float = None, hold: int = None,
+               stop: float = None, buy_overrides: bool = True) -> pd.DataFrame:
+    """Halten oder draußen für jeden Handelstag.
 
-
-def rsi_cross_up(r: pd.Series, ma: int) -> pd.Series:
-    """Tage, an denen der RSI von unten über seinen gleitenden Durchschnitt kreuzt."""
-    m = r.rolling(ma).mean()
-    return (r > m) & (r.shift(1) <= m.shift(1))
-
-
-def dip_entry(score: pd.Series, trend_ok: pd.Series, r: pd.Series,
-              ma: int = None, setup_days: int = None, green: float = None) -> tuple[pd.Series, pd.Series]:
-    """Setup = Score war in den letzten Tagen grün (im Aufwärtstrend); Trigger = RSI kreuzt währenddessen nach oben.
-
-    Der Trigger braucht den Aufwärtstrend auch am Kauftag selbst, sonst käme im Crash (März 2020)
-    ein Kaufsignal, obwohl der Index schon unter die 200-Tage-Linie gefallen ist.
+    Verkauf, wenn der Index unter die Marke `exit_below` % unter seiner 200-Tage-Linie fällt.
+    Danach draußen, bis er wieder über der Linie schließt (Wiedereinstieg) oder ein Kaufsignal kommt.
+    `stop`: nach einem Kaufsignal zusätzlich verkaufen, wenn der Index so viel Prozent unter den Kaufkurs fällt.
+    `buy_overrides=False`: ein Kaufsignal zählt nur, solange der Index nicht unter der Verkaufsmarke liegt.
     """
-    ma = ma or config.RSI_MA
-    setup_days = setup_days or config.SETUP_DAYS
-    green = config.GREEN_FROM if green is None else green
-    hot = (score >= green) & trend_ok.reindex(score.index, fill_value=False)
-    setup = hot.astype(float).rolling(setup_days, min_periods=1).max().astype(bool)
-    trend = trend_ok.reindex(score.index, fill_value=False).astype(bool)
-    trigger = setup & trend & rsi_cross_up(r.reindex(score.index), ma)
-    return setup, trigger
-
-
-def signal(score: float, trend_ok: bool = True, setup: bool = False, triggered: bool = False) -> dict:
-    if score is None or np.isnan(score):
-        return {"color": "grey", "label": "Keine Daten", "lever": "-"}
-    if config.RSI_TRIGGER and triggered:
-        return {"color": "green", "label": "Dip-Ende: kaufen", "lever": "2x, mit viel Risikobereitschaft 3x"}
-    if config.RSI_TRIGGER and setup and (trend_ok or not config.TREND_FILTER):
-        return {"color": "yellow", "label": "Dip läuft", "lever": f"warten, bis der RSI über seinen {config.RSI_MA}-Tage-Schnitt dreht"}
-    if config.RSI_TRIGGER and setup:
-        return {"color": "yellow", "label": "Dip im Abwärtstrend", "lever": "kein Hebel, bis der S&P 500 wieder über der 200-Tage-Linie liegt"}
-    if score >= config.GREEN_FROM:
-        if config.RSI_TRIGGER and trend_ok:
-            return {"color": "yellow", "label": "Dip läuft", "lever": f"warten, bis der RSI über seinen {config.RSI_MA}-Tage-Schnitt dreht"}
-        if trend_ok or not config.TREND_FILTER:
-            return {"color": "green", "label": "Dip kaufen", "lever": "2x, mit viel Risikobereitschaft 3x"}
-        return {"color": "yellow", "label": "Dip im Abwärtstrend", "lever": "kein Hebel, bis der S&P 500 wieder über der 200-Tage-Linie liegt"}
-    if score >= config.RED_BELOW:
-        return {"color": "yellow", "label": "Leichter Rücksetzer", "lever": "beobachten, noch kein Hebel-Neukauf"}
-    return {"color": "red", "label": "Kein Dip", "lever": "abwarten"}
-
-
-def exit_signal(close: pd.Series) -> dict:
-    """Hebel nur über der 200-Tage-Linie halten (Gayed, 'Leverage for the Long Run')."""
+    if stop is not None or not buy_overrides:
+        return _hold_loop(close, buy, exit_below, hold, stop, buy_overrides)
+    exit_below = config.EXIT_BELOW if exit_below is None else exit_below
+    hold = hold or config.SIGNAL_HOLD
     close = close.dropna()
-    sma200 = close.rolling(200).mean()
-    if sma200.dropna().empty:
+    sma = close.rolling(200).mean()
+    out = pd.DataFrame({"close": close, "sma200": sma, "distance": (close / sma - 1) * 100})
+    out["below"] = out["distance"] < -exit_below
+    out["above"] = out["distance"] > 0
+    buy = pd.Series(False, index=close.index) if buy is None else buy.reindex(close.index, fill_value=False)
+    falls = out["below"] & ~out["below"].shift(1, fill_value=False)
+    state = pd.Series(np.nan, index=close.index).mask(falls, 1.0).mask(out["above"] | buy, 0.0).ffill()
+    out["out"] = state == 1.0
+    was_out = out["out"].shift(1, fill_value=False)
+    out["sell"] = out["out"] & ~was_out
+    out["reentry"] = out["above"] & was_out
+    out["sell_recent"] = recent(out["sell"], hold)
+    out["reentry_recent"] = recent(out["reentry"], hold)
+    return out
+
+
+def _hold_loop(close, buy, exit_below, hold, stop, buy_overrides) -> pd.DataFrame:
+    """Wie `hold_state`, aber Tag für Tag, damit Stopp und Kaufkurs berücksichtigt werden können."""
+    exit_below = config.EXIT_BELOW if exit_below is None else exit_below
+    hold = hold or config.SIGNAL_HOLD
+    close = close.dropna()
+    sma = close.rolling(200).mean()
+    out = pd.DataFrame({"close": close, "sma200": sma, "distance": (close / sma - 1) * 100})
+    out["below"] = out["distance"] < -exit_below
+    out["above"] = out["distance"] > 0
+    buy = pd.Series(False, index=close.index) if buy is None else buy.reindex(close.index, fill_value=False)
+    below, above, b, px = out["below"].to_numpy(), out["above"].to_numpy(), buy.to_numpy(), close.to_numpy()
+    state = np.zeros(len(close), dtype=bool)
+    is_out, entry, prev_below = False, None, False
+    for i in range(len(close)):
+        if b[i] and (buy_overrides or not below[i]):
+            if is_out or entry is None:
+                entry = px[i]
+            is_out = False
+        elif is_out:
+            if above[i]:
+                is_out, entry = False, None
+        elif (below[i] and (not prev_below or not buy_overrides)) or (
+                stop is not None and entry is not None and px[i] < entry * (1 - stop / 100)):
+            is_out, entry = True, None
+        prev_below = below[i]
+        state[i] = is_out
+    out["out"] = state
+    was_out = out["out"].shift(1, fill_value=False)
+    out["sell"] = out["out"] & ~was_out
+    out["reentry"] = out["above"] & was_out
+    out["sell_recent"] = recent(out["sell"], hold)
+    out["reentry_recent"] = recent(out["reentry"], hold)
+    return out
+
+
+def status(sig, pos) -> dict:
+    """Ampel für den heutigen Tag aus je einer Zeile von `signals` (S&P 500) und `hold_state` (Nasdaq 100)."""
+    if pd.isna(sig["rsi"]) or pd.isna(pos["sma200"]):
+        return {"color": "grey", "label": "Keine Daten", "text": "Zu wenig Kursdaten."}
+    if pos["sell_recent"] and pos["out"]:
+        return {"color": "red", "label": "Verkaufen",
+                "text": f"Der Nasdaq 100 ist mehr als {config.EXIT_BELOW:g} % unter seine 200-Tage-Linie gefallen. Hebel raus."}
+    if sig["buy_recent"] and pos["out"]:
+        return {"color": "red", "label": "Draußen bleiben",
+                "text": f"Kaufsignal, aber der Nasdaq 100 liegt mehr als {config.EXIT_BELOW:g} % unter seiner 200-Tage-Linie. "
+                        "So ein Kauf hat 2008 und 2022 viel gekostet. Warten, bis er wieder näher an der Linie ist."}
+    if sig["buy_recent"]:
+        return {"color": "green", "label": "Kaufen",
+                "text": "Panik am Markt und der RSI dreht nach oben. Je höher der Score, desto stärker das Signal."}
+    if pos["reentry_recent"]:
+        return {"color": "green", "label": "Wieder einsteigen",
+                "text": "Der Nasdaq 100 ist nach dem Verkauf zurück über seiner 200-Tage-Linie."}
+    if sig["setup"]:
+        return {"color": "yellow", "label": "Panik, RSI abwarten",
+                "text": f"Alle drei Panik-Bedingungen sind erfüllt. Kaufen, sobald der RSI über dem Schnitt "
+                        f"der letzten {config.RSI_MA} Tage liegt."}
+    if pos["out"]:
+        return {"color": "red", "label": "Draußen bleiben",
+                "text": "Verkauft. Wieder rein beim nächsten Kaufsignal oder wenn der Nasdaq 100 über seiner 200-Tage-Linie schließt."}
+    met = int(sig["c_drawdown"]) + int(sig["c_vix"]) + int(sig["c_fear_greed"])
+    return {"color": "grey", "label": "Kein Kaufsignal",
+            "text": f"{met} von 3 Panik-Bedingungen erfüllt. Halten, was du hast."}
+
+
+def exit_signal(close: pd.Series, buy: pd.Series = None, exit_below: float = None, buy_overrides: bool = True) -> dict:
+    """Heutiger Stand von `hold_state` für einen Index."""
+    st = hold_state(close, buy, exit_below, buy_overrides=buy_overrides)
+    st = st[st["sma200"].notna()]
+    if st.empty:
         return {"hold": None}
-    above = close > sma200
-    last = bool(above.iloc[-1])
-    changed = above.ne(above.shift())
-    since = int(len(above) - 1 - np.flatnonzero(changed.to_numpy())[-1])
+    hold = ~st["out"]
+    changed = hold.ne(hold.shift())
+    since = int(len(hold) - 1 - np.flatnonzero(changed.to_numpy())[-1])
+    last = st.iloc[-1]
     return {
-        "hold": last,
-        "distance": round(float((close.iloc[-1] / sma200.iloc[-1] - 1) * 100), 2),
+        "hold": bool(hold.iloc[-1]),
+        "distance": round(float(last["distance"]), 2),
         "days": since,
-        "close": round(float(close.iloc[-1]), 2),
-        "sma200": round(float(sma200.iloc[-1]), 2),
+        "close": round(float(last["close"]), 2),
+        "sma200": round(float(last["sma200"]), 2),
     }
 
 

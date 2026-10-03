@@ -1,8 +1,6 @@
 """Datenabruf aus öffentlichen Quellen. Jede Quelle darf ausfallen; dann fehlt nur ihr Indikator."""
 
-import io
 import logging
-import time
 from datetime import date, timedelta
 
 import pandas as pd
@@ -73,58 +71,6 @@ def fear_greed(days: int = 800) -> pd.Series | None:
         except Exception as e:  # noqa: BLE001
             log.warning("Fear & Greed ab %s nicht abrufbar: %s", start, e)
     return None
-
-
-def fred(series_id: str, tries: int = 3, days: int = 1500) -> pd.Series | None:
-    """Zeitreihe der US-Notenbank St. Louis (FRED), ohne API-Key über den CSV-Export.
-
-    Der Export antwortet manchmal sehr langsam, darum nur die letzten Jahre und mehrere Versuche.
-    """
-    start = (date.today() - timedelta(days=days)).isoformat()
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
-    for attempt in range(1, tries + 1):
-        try:
-            r = requests.get(url, timeout=60)
-            r.raise_for_status()
-            df = pd.read_csv(io.StringIO(r.text))
-            df.columns = ["date", "value"]
-            return pd.Series(
-                pd.to_numeric(df["value"], errors="coerce").to_numpy(),
-                index=pd.to_datetime(df["date"]),
-                name=series_id,
-            ).dropna()
-        except Exception as e:  # noqa: BLE001
-            log.warning("FRED %s nicht abrufbar (Versuch %d/%d): %s", series_id, attempt, tries, e)
-            time.sleep(5 * attempt)
-    return None
-
-
-def sp500_tickers() -> list[str] | None:
-    try:
-        r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=UA, timeout=30)
-        r.raise_for_status()
-        table = pd.read_html(io.StringIO(r.text), attrs={"id": "constituents"})[0]
-        return [t.replace(".", "-") for t in table["Symbol"].astype(str)]
-    except Exception as e:  # noqa: BLE001
-        log.warning("S&P-500-Liste nicht abrufbar: %s", e)
-        return None
-
-
-def breadth(start: str | None = None) -> pd.Series | None:
-    """Anteil der S&P-500-Aktien über ihrer 200-Tage-Linie in Prozent."""
-    tickers = sp500_tickers()
-    if not tickers:
-        return None
-    try:
-        df = closes(tickers, period="3y", start=start)
-        sma = df.rolling(200).mean()
-        valid = sma.notna() & df.notna()
-        above = (df > sma) & valid
-        pct = above.sum(axis=1) / valid.sum(axis=1).replace(0, float("nan")) * 100
-        return pct[valid.sum(axis=1) > 300].rename("breadth")
-    except Exception as e:  # noqa: BLE001
-        log.warning("Marktbreite nicht berechenbar: %s", e)
-        return None
 
 
 def analyst_info(ticker: str) -> dict:

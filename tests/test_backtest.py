@@ -1,28 +1,25 @@
+import pandas as pd
+
 from dipbuy import backtest
 from tests.fake_source import FakeSource
 
 
-def test_backtest_finds_crash_signal():
-    src = FakeSource(days=1500, crash_pct=0.3, crash_end=300, recovery=0.5)
+def test_backtest_runs_and_reports():
+    src = FakeSource(days=1500, crash_pct=0.15, crash_len=10, crash_end=300, recovery=0.2, drift=0.0015)
     result = backtest.run(src)
-    green = result["signals"]["ab 60, ohne Filter, sofort"]
-    assert green["summary"]["count"] >= 1
-    row = green["rows"][-1]
-    assert row["dd_at_signal"] > 5
-    assert row["days_peak_to_signal"] > 0
-    assert row["spx_3M"] is not None
+    assert result["summary"]["count"] >= 1
+    row = result["signals"][0]
+    assert row["drawdown"] >= 4 and row["ndx_3M"] is not None and row["score"] >= 0
+    assert len(result["sensitivity"]) == len(backtest.ATH_PCTS) * len(backtest.VIX_MINS)
     text = backtest.report(result)
-    assert "Anzahl Signale" in text and "Zum Vergleich" in text
+    assert "Kaufsignale" in text and "Strategie" in text and "Andere Schwellen" in text and "Score beim Signal" in text
 
 
-def test_episodes_debounce():
-    import pandas as pd
+def test_first_signals_debounce():
     idx = pd.bdate_range("2020-01-01", periods=200)
-    s = pd.Series(0.0, index=idx)
-    s.iloc[10:15] = 70
-    s.iloc[30:32] = 70   # zu nah, gleiche Phase
-    s.iloc[150:155] = 70  # neue Phase
-    assert backtest.episodes(s, 65) == [idx[10], idx[150]]
+    buy = pd.Series(False, index=idx)
+    buy.iloc[[10, 12, 30, 150]] = True  # 12 und 30 gehören zum selben Dip
+    assert backtest.first_signals(buy) == [idx[10], idx[150]]
 
 
 def test_simulate_enters_and_exits():
@@ -37,24 +34,6 @@ def test_simulate_enters_and_exits():
     assert r["trades"] == 1
     assert r["final"] == 1.21
     assert r["trade_list"][0][2] == 21.0
-
-
-def test_trigger_needs_uptrend_on_buy_day():
-    import pandas as pd
-    from dipbuy import indicators as ind
-
-    idx = pd.bdate_range("2024-01-01", periods=12)
-    score = pd.Series([60.0] * 12, index=idx)
-    r = pd.Series([50, 45, 40, 35, 30, 28, 26, 25, 24, 35, 45, 50], index=idx, dtype=float)
-    trend = pd.Series(True, index=idx)
-    _, trigger = ind.dip_entry(score, trend, r, ma=3, setup_days=10)
-    assert trigger.any()
-
-    broken = trend.copy()
-    broken.iloc[5:] = False  # Trend bricht während des Dips
-    setup, trigger = ind.dip_entry(score, broken, r, ma=3, setup_days=10)
-    assert setup.iloc[-1] and not trigger.any()
-    assert ind.signal(60.0, False, True, False)["label"] == "Dip im Abwärtstrend"
 
 
 def test_simulate_5x_liquidation():
