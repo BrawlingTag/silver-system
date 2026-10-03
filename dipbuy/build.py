@@ -21,14 +21,13 @@ PART_LABELS = {
     "angst.fear_greed": ("CNN Fear & Greed", "fear_greed", "{:.0f}"),
     "angst.vix": ("VIX", "vix", "{:.1f}"),
     "angst.vix_term": ("VIX / VIX3M (über 1 = Panik)", "vix_term", "{:.2f}"),
+    "angst.rsi": ("RSI S&P 500 / Nasdaq 100 (unter 30 = überverkauft)", "rsi", "{}"),
     "angst.dd_spx": ("S&P 500 unter Hoch", "dd_spx", "-{:.1f} %"),
     "angst.dd_ndx": ("Nasdaq 100 unter Hoch", "dd_ndx", "-{:.1f} %"),
     "angst.dd_world": ("MSCI World unter Hoch", "dd_world", "-{:.1f} %"),
     "angst.breadth": ("S&P-500-Aktien über 200-Tage-Linie", "breadth", "{:.0f} %"),
-    "wende.rsi_turn": ("RSI dreht aus überverkauft", None, None),
-    "wende.sma20": ("Index zurück über 20-Tage-Linie", None, None),
-    "wende.sma50": ("Index zurück über 50-Tage-Linie", None, None),
-    "wende.vix_falling": ("VIX fällt vom Hoch", None, None),
+    "wende.vix_falling": ("VIX kommt vom 10-Tage-Hoch zurück", None, None),
+    "wende.bounce": ("Index erholt sich vom 5-Tage-Tief", None, None),
     "makro.hy_level": ("High-Yield-Spread", "hy_spread", "{:.2f} %"),
     "makro.hy_trend": ("High-Yield-Spread, Änderung 20 Tage", "hy_change", "{:+.2f} Pp."),
     "makro.sahm": ("Sahm-Regel (Rezession ab 0,5)", "sahm", "{:.2f}"),
@@ -83,6 +82,7 @@ def raw_values(d: dict) -> dict:
         "fear_greed": last(d["fear_greed"]),
         "vix": last(d["vix"]),
         "vix_term": last(d["vix"] / d["vix3m"]) if d["vix3m"] is not None else None,
+        "rsi": f"{last(ind.rsi(d['spx'])):.0f} / {last(ind.rsi(d['ndx'])):.0f}",
         "dd_spx": last(ind.drawdown(d["spx"])),
         "dd_ndx": last(ind.drawdown(d["ndx"])),
         "dd_world": last(ind.drawdown(d["world"])) if d["world"] is not None else None,
@@ -107,11 +107,9 @@ def summary_text(row, dip: bool) -> str:
     if not dip:
         w = "kein nennenswerter Rücksetzer"
     elif wende < 35:
-        w = "Wende noch nicht bestätigt"
-    elif wende < 65:
-        w = "erste Stabilisierung"
+        w = "noch keine Stabilisierung"
     else:
-        w = "Wende bestätigt"
+        w = "erste Stabilisierung"
     m = "" if makro is None or math.isnan(makro) or makro >= 50 else ", Makro-Lage angespannt"
     return f"{a}, {w}{m}."
 
@@ -170,6 +168,7 @@ def build(src, out_path: Path) -> dict:
         "signal": ind.signal(score),
         "summary": summary_text(last, dip),
         "dip": dip,
+        "dip_min": config.DIP_MIN_DRAWDOWN,
         "veto": bool(last["veto"]),
         "sub": {k: clean(round(float(last[k]), 1)) for k in ("angst", "wende", "makro")},
         "weights": config.WEIGHTS,

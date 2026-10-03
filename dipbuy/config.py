@@ -23,17 +23,17 @@ WATCHLIST = [
 ]
 
 # Gewichte der drei Teilscores im Gesamtscore
-WEIGHTS = {"angst": 0.45, "wende": 0.35, "makro": 0.20}
+WEIGHTS = {"angst": 0.60, "wende": 0.15, "makro": 0.25}
 
 # Ampel
 RED_BELOW = 40
 GREEN_FROM = 65
 STRONG_FROM = 80  # ab hier ist auch 3x vertretbar
 
-# Die Wende-Säule zählt nur, wenn es vorher einen echten Rücksetzer gab:
-# S&P 500 mindestens so weit unter dem Hoch innerhalb der letzten 60 Handelstage
-DIP_MIN_DRAWDOWN = 8.0
-DIP_LOOKBACK = 60
+# Die Stabilisierungs-Säule zählt nur, wenn es vorher einen Rücksetzer gab:
+# S&P 500 mindestens so weit unter dem Hoch innerhalb der letzten 20 Handelstage
+DIP_MIN_DRAWDOWN = 5.0
+DIP_LOOKBACK = 20
 
 # Veto: Rezessionssignal plus schnell steigende Kreditspreads -> höchstens Gelb
 VETO_SAHM = 0.5

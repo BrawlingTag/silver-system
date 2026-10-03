@@ -40,27 +40,33 @@ def weighted_mean(parts: dict, weights: dict) -> pd.Series:
 
 
 ANGST_WEIGHTS = {
-    "fear_greed": 1.5, "vix": 1.5, "vix_term": 1.0,
+    "fear_greed": 1.5, "vix": 1.5, "vix_term": 1.0, "rsi": 1.5,
     "dd_spx": 1.0, "dd_ndx": 1.0, "dd_world": 0.5, "breadth": 1.0,
 }
-WENDE_WEIGHTS = {"rsi_turn": 1.0, "sma20": 1.0, "sma50": 1.0, "vix_falling": 1.0}
+WENDE_WEIGHTS = {"vix_falling": 1.0, "bounce": 1.0}
 MAKRO_WEIGHTS = {"hy_level": 1.0, "hy_trend": 1.0, "sahm": 1.0}
 
 
 def angst_parts(d: dict) -> dict:
-    """d enthält Series: spx, ndx, world, vix, vix3m, fear_greed, breadth (einzelne dürfen None sein)."""
+    """Wie tief und wie panisch ist der Rücksetzer? Skaliert so, dass schon eine Korrektur
+    von rund 6 % deutlich zählt; größere Crashs erreichen schnell die vollen 100.
+
+    d enthält Series: spx, ndx, world, vix, vix3m, fear_greed, breadth (einzelne dürfen None sein).
+    """
     p = {}
     if d.get("fear_greed") is not None:
-        p["fear_greed"] = lin(d["fear_greed"], 55, 10)
-    p["vix"] = lin(d["vix"], 16, 40)
+        p["fear_greed"] = lin(d["fear_greed"], 50, 15)
+    p["vix"] = lin(d["vix"], 15, 30)
     if d.get("vix3m") is not None:
-        p["vix_term"] = lin(d["vix"] / d["vix3m"], 0.88, 1.08)
-    p["dd_spx"] = lin(drawdown(d["spx"]), 0, 25)
-    p["dd_ndx"] = lin(drawdown(d["ndx"]), 0, 30)
+        p["vix_term"] = lin(d["vix"] / d["vix3m"], 0.85, 1.0)
+    # RSI überverkauft zählt sofort, ohne auf den Wiederanstieg zu warten
+    p["rsi"] = (lin(rsi(d["spx"]), 50, 25) + lin(rsi(d["ndx"]), 50, 25).reindex(d["spx"].index)) / 2
+    p["dd_spx"] = lin(drawdown(d["spx"]), 0, 10)
+    p["dd_ndx"] = lin(drawdown(d["ndx"]), 0, 12)
     if d.get("world") is not None:
-        p["dd_world"] = lin(drawdown(d["world"]), 0, 25)
+        p["dd_world"] = lin(drawdown(d["world"]), 0, 10)
     if d.get("breadth") is not None:
-        p["breadth"] = lin(d["breadth"], 60, 15)
+        p["breadth"] = lin(d["breadth"], 65, 25)
     return p
 
 
@@ -69,24 +75,16 @@ def dip_present(spx: pd.Series) -> pd.Series:
     return dd.rolling(config.DIP_LOOKBACK, min_periods=1).max() >= config.DIP_MIN_DRAWDOWN
 
 
-def _turn_parts(close: pd.Series) -> dict:
-    r = rsi(close)
-    rmin = r.rolling(20, min_periods=1).min()
-    sma20 = close.rolling(20).mean()
-    sma50 = close.rolling(50).mean()
-    return {
-        "rsi_turn": lin(r - rmin, 0, 20).where(rmin < 40, 0.0).where(r.notna()),
-        "sma20": lin(close / sma20 - 1, -0.03, 0.02),
-        "sma50": lin(close / sma50 - 1, -0.05, 0.01),
-    }
-
-
 def wende_parts(d: dict) -> dict:
-    """Mittel aus S&P 500 und Nasdaq 100; zählt nur nach einem echten Rücksetzer."""
-    a, b = _turn_parts(d["spx"]), _turn_parts(d["ndx"])
-    parts = {k: (a[k] + b[k].reindex(a[k].index)) / 2 for k in a}
+    """Frühe Stabilisierung, ohne auf eine bestätigte Wende zu warten: VIX kommt vom Hoch zurück,
+    Index erholt sich vom 5-Tage-Tief. Zählt nur nach einem Rücksetzer."""
     vix = d["vix"]
-    parts["vix_falling"] = lin(1 - vix / vix.rolling(10, min_periods=1).max(), 0, 0.3)
+    spx, ndx = d["spx"], d["ndx"].reindex(d["spx"].index)
+    bounce = lambda c: lin(c / c.rolling(5, min_periods=1).min() - 1, 0, 0.02)  # noqa: E731
+    parts = {
+        "vix_falling": lin(1 - vix / vix.rolling(10, min_periods=1).max(), 0, 0.2),
+        "bounce": (bounce(spx) + bounce(ndx)) / 2,
+    }
     dip = dip_present(d["spx"])
     return {k: v.where(dip, 0.0).where(v.notna()) for k, v in parts.items()}
 

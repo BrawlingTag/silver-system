@@ -19,8 +19,9 @@ log = logging.getLogger("dipbuy")
 
 START = "2004-06-01"   # Vorlauf für 200-Tage-Linien und 52-Wochen-Hochs
 EVAL_FROM = "2007-01-01"
-NEW_EPISODE_AFTER = 60  # Handelstage ohne Grün, bevor ein neues Signal zählt
-HORIZONS = {"3M": 63, "6M": 126, "12M": 252}
+NEW_EPISODE_AFTER = 20  # Handelstage ohne Signal, bevor ein neues Signal zählt
+THRESHOLDS = [50, 55, 60, 65, 70]
+HORIZONS = {"1M": 21, "3M": 63, "6M": 126, "12M": 252}
 # Grobe jährliche Kosten gehebelter ETFs (Gebühr plus Finanzierung)
 LEVER_COST = {2: 0.015, 3: 0.03}
 
@@ -158,6 +159,25 @@ def report(result: dict) -> str:
     lines = [f"# Backtest Dip-Buy-Score ({result['from']} bis {result['to']})", ""]
     lines.append("Datenverfügbarkeit: " + ", ".join(f"{k} ab {v}" for k, v in result["coverage"].items()))
     lines.append("")
+    years = (pd.Timestamp(result["to"]) - pd.Timestamp(result["from"])).days / 365.25
+    lines += [
+        "## Vergleich der Schwellen",
+        "",
+        "| Schwelle | Signale | pro Jahr | Abstand Median (Tage) | Hoch bis Signal Median (Tage) | nach dem Tief | danach noch Schnitt / schlimmstens | S&P 3M | Nasdaq 3x 3M | Nasdaq 3x 12M |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for block in result["signals"].values():
+        s = block["summary"]
+        if not s["count"]:
+            lines.append(f"| {block['threshold']} | 0 | | | | | | | | |")
+            continue
+        lines.append(
+            f"| {block['threshold']} | {s['count']} | {s['count'] / years:.1f} | {s['median_days_between']} | {s['median_days_peak_to_signal']} "
+            f"| {s['share_after_bottom']:.0f} % | {s['avg_further_drop']} % / {s['worst_further_drop']} % "
+            f"| {fmt(s.get('spx_3M'), ' %')} ({s.get('spx_3M_pos')} % pos.) | {fmt(s.get('ndx3x_3M'), ' %')} ({s.get('ndx3x_3M_pos')} % pos.) "
+            f"| {fmt(s.get('ndx3x_12M'), ' %')} ({s.get('ndx3x_12M_pos')} % pos.) |"
+        )
+    lines.append("")
     for name, block in result["signals"].items():
         s = block["summary"]
         lines.append(f"## Signal: Score ab {block['threshold']} ({name})")
@@ -199,9 +219,9 @@ def run(src) -> dict:
     sc = sc.loc[EVAL_FROM:].dropna(subset=["score"])
     coverage = {k: v.dropna().index.min().strftime("%Y-%m-%d") for k, v in d.items() if v is not None and not v.dropna().empty}
     signals = {}
-    for name, thr in (("Grün", config.GREEN_FROM), ("stark, 3x", config.STRONG_FROM)):
+    for thr in THRESHOLDS:
         rows = analyse(d, sc, thr)
-        signals[name] = {"threshold": thr, "rows": rows, "summary": summarize(rows)}
+        signals[f"ab {thr}"] = {"threshold": thr, "rows": rows, "summary": summarize(rows)}
     return {
         "from": sc.index.min().strftime("%Y-%m-%d"),
         "to": sc.index.max().strftime("%Y-%m-%d"),

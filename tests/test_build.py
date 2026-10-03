@@ -19,10 +19,18 @@ def test_calm_market_is_red(tmp_path):
     assert all(e["hold"] for e in data["exits"])
 
 
-def test_crash_without_turn_is_not_green(tmp_path):
+def test_crash_signals_without_waiting_for_turn(tmp_path):
     data = run(tmp_path, crash_pct=0.25, crash_end=0)
-    assert data["sub"]["angst"] > 60
-    assert data["signal"]["color"] != "green"
+    assert data["sub"]["angst"] > 80
+    assert data["signal"]["color"] == "green"
+
+
+def test_small_correction_raises_score(tmp_path):
+    calm = run(tmp_path)["score"]
+    small = run(tmp_path, crash_pct=0.03, crash_len=10, crash_end=0)["score"]
+    six = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=0)
+    assert calm < small < six["score"]
+    assert six["signal"]["color"] != "red"
 
 
 def test_crash_with_turn_is_green(tmp_path):

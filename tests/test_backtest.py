@@ -5,10 +5,10 @@ from tests.fake_source import FakeSource
 def test_backtest_finds_crash_signal():
     src = FakeSource(days=1500, crash_pct=0.3, crash_end=300, recovery=0.5)
     result = backtest.run(src)
-    green = result["signals"]["Grün"]
+    green = result["signals"]["ab 60"]
     assert green["summary"]["count"] >= 1
     row = green["rows"][-1]
-    assert row["dd_at_signal"] > 8
+    assert row["dd_at_signal"] > 5
     assert row["days_peak_to_signal"] > 0
     assert row["spx_3M"] is not None
     text = backtest.report(result)
