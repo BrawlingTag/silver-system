@@ -23,3 +23,17 @@ def test_episodes_debounce():
     s.iloc[30:32] = 70   # zu nah, gleiche Phase
     s.iloc[150:155] = 70  # neue Phase
     assert backtest.episodes(s, 65) == [idx[10], idx[150]]
+
+
+def test_simulate_enters_and_exits():
+    import pandas as pd
+    from dipbuy import strategy
+    idx = pd.bdate_range("2020-01-01", periods=6)
+    close = pd.Series([100, 100, 110, 121, 100, 100], index=idx, dtype=float)
+    entries = pd.Series([False, True, False, False, False, False], index=idx)
+    exits = pd.Series([False, False, False, True, False, False], index=idx)
+    r = strategy.simulate(close, 1, entries, exits, idx[0])
+    # gekauft zum Schluss von Tag 2, verkauft zum Schluss von Tag 4: +10 % und +10 %
+    assert r["trades"] == 1
+    assert r["final"] == 1.21
+    assert r["trade_list"][0][2] == 21.0

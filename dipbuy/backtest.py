@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import build, config
+from . import build, config, strategy
 from . import indicators as ind
 
 log = logging.getLogger("dipbuy")
@@ -176,6 +176,7 @@ def report(result: dict) -> str:
     lines = [f"# Backtest Dip-Buy-Score ({result['from']} bis {result['to']})", ""]
     lines.append("Datenverfügbarkeit: " + ", ".join(f"{k} ab {v}" for k, v in result["coverage"].items()))
     lines.append("")
+    lines += strategy.report(result["strategies"])
     years = (pd.Timestamp(result["to"]) - pd.Timestamp(result["from"])).days / 365.25
     lines += [
         "## Vergleich der Schwellen",
@@ -249,7 +250,9 @@ def run(src) -> dict:
                 rows = analyse(d, sc, thr, entries=trigger)
                 signals[f"ab {thr}, {fname}, RSI über MA{ma}"] = {
                     "threshold": thr, "filter": fname, "entry": f"RSI über MA{ma}", "rows": rows, "summary": summarize(rows)}
+    strat = strategy.strategies(d, sc, EVAL_FROM)
     return {
+        "strategies": {k: {kk: vv for kk, vv in v.items() if kk != "equity"} for k, v in strat.items()},
         "from": sc.index.min().strftime("%Y-%m-%d"),
         "to": sc.index.max().strftime("%Y-%m-%d"),
         "coverage": coverage,
