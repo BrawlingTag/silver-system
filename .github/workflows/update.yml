@@ -31,7 +31,7 @@ jobs:
       - run: python -m pytest -q
       - run: python -m dipbuy.build site/data.json
       - name: Ergebnis anzeigen
-        run: python -c "import json; d=json.load(open('site/data.json')); print(d['asof'], d['signal']); [print(r) for r in d['rules']]; print(d['info'], d['exits']); print(len(d['history']['dates']), 'Tage', 'Kauf', d['history']['buys'][-5:], 'Verkauf', d['history']['sells'][-5:]); print(len(d['stocks']), 'Aktien', d['stocks'][:2])"
+        run: python -c "import json; d=json.load(open('site/data.json')); print(d['asof'], d['signal'], 'Score', d['score'], d['score_parts']); [print(r) for r in d['rules']]; print(d['info'], d['exits']); print(len(d['history']['dates']), 'Tage', 'Kauf', d['history']['buys'][-5:], 'Verkauf', d['history']['sells'][-5:]); print(len(d['stocks']), 'Aktien', d['stocks'][:2])"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

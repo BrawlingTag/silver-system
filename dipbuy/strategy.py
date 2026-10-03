@@ -1,4 +1,4 @@
-"""Strategie-Simulation: Kauf beim Dip-Signal, Verkauf beim Ausstiegssignal (Index unter 200-Tage-Linie).
+"""Strategie-Simulation: Kauf beim Kaufsignal, Verkauf beim Verkaufssignal (Index unter 200-Tage-Linie).
 
 Zwischen Verkauf und nächstem Kauf liegt das Geld unverzinst als Cash. Signale gelten zum Schlusskurs,
 gehandelt wird damit ab dem nächsten Tag.
@@ -78,22 +78,28 @@ def simulate(close: pd.Series, lever: int, entries: pd.Series, exits: pd.Series,
     }
 
 
-def strategies(d: dict, rl: pd.DataFrame, start) -> dict:
+def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
     """Kauf beim Kaufsignal, Verkauf beim Verkaufssignal, verglichen mit Kaufen und Halten."""
-    ndx = d["ndx"].dropna()
-    idx = ndx.index
-    always = pd.Series(True, index=idx)
-    never = pd.Series(False, index=idx)
-    buy, sell = rl["buy"] | rl["reentry"], rl["below"]
+    from . import indicators as ind
+
+    ndx, spx = d["ndx"].dropna(), d["spx"].dropna()
+    buy = sig["buy"]
+    pos = ind.hold_state(ndx, buy)
+    pos_spx = ind.hold_state(spx, buy)
+    trend = ind.hold_state(ndx)
+    always = pd.Series(True, index=ndx.index)
+    never = pd.Series(False, index=ndx.index)
+    rules = buy | pos["reentry"]
     plan = {
         "Nasdaq 100 halten (ohne Hebel)": (ndx, 1, always, never),
         "Nasdaq 100 3x halten": (ndx, 3, always, never),
-        "Nasdaq 100 2x, Regeln": (ndx, 2, buy, sell),
-        "Nasdaq 100 3x, Regeln": (ndx, 3, buy, sell),
-        "Nasdaq 100 3x, nur Dip-Kauf ohne Wiedereinstieg": (ndx, 3, rl["buy"], sell),
-        "Nasdaq 100 3x, nur 200-Tage-Linie": (ndx, 3, rl["trend"], sell),
-        "Nasdaq 100 5x täglich, Regeln": (ndx, 5, buy, sell),
-        "Nasdaq 100 5x fest, Regeln": (ndx, 5, buy, sell, "fest"),
+        "Nasdaq 100 2x, Regeln": (ndx, 2, rules, pos["sell"]),
+        "Nasdaq 100 3x, Regeln": (ndx, 3, rules, pos["sell"]),
+        "Nasdaq 100 3x, nur Kaufsignal ohne Wiedereinstieg": (ndx, 3, buy, pos["sell"]),
+        "Nasdaq 100 3x, nur 200-Tage-Linie": (ndx, 3, ~trend["out"], trend["sell"]),
+        "S&P 500 3x, Regeln": (spx, 3, buy | pos_spx["reentry"], pos_spx["sell"]),
+        "Nasdaq 100 5x täglich, Regeln": (ndx, 5, rules, pos["sell"]),
+        "Nasdaq 100 5x fest, Regeln": (ndx, 5, rules, pos["sell"], "fest"),
     }
     return {name: simulate(*args[:4], start, *args[4:]) for name, args in plan.items()}
 

@@ -28,11 +28,18 @@
   .muted { color: var(--muted); font-size: 13px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
   .hero .label { font-size: 30px; }
+  .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .score { text-align: right; flex: none; }
+  .score b { display: block; font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; border-radius: 99px; background: var(--line); margin: 14px 0 6px; position: relative; overflow: hidden; }
+  .bar span { position: absolute; inset: 0 auto 0 0; border-radius: 99px; }
+  .bar i { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: var(--card); }
+  .parts { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .parts b { color: var(--text); }
   .rule { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .rule:last-child { border-bottom: 0; }
   .check { flex: none; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 14px; }
   .rule b { font-weight: 600; display: block; font-size: 14px; }
-  .info { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; margin-top: 12px; }
   .label { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
   .pill { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; color: #fff; }
   .exit { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -73,13 +80,16 @@
   <div class="card" id="err">Daten konnten nicht geladen werden.</div>
 
   <section class="card hero">
-    <p class="label" id="label"></p>
-    <div class="muted" id="text"></div>
-    <div class="info" id="info"></div>
+    <div class="hero-top">
+      <div><p class="label" id="label"></p><div class="muted" id="text"></div></div>
+      <div class="score"><b id="score"></b><span class="muted">Score</span></div>
+    </div>
+    <div class="bar"><span id="scorebar"></span><i></i></div>
+    <div class="parts" id="parts"></div>
   </section>
 
   <section class="card">
-    <h2>Kaufsignal: alle drei Regeln oder Wiedereinstieg</h2>
+    <h2>Kaufsignal: Panik am Markt, dann dreht der RSI</h2>
     <div id="rules"></div>
   </section>
 
@@ -100,7 +110,7 @@
     <h2>Watchlist Growth-Aktien</h2>
     <div class="tablewrap"><table class="stocks" id="stocks"></table></div>
     <button id="more" type="button"></button>
-    <p class="muted">Score aus Rücksetzer vom 52-Wochen-Hoch, RSI, Kursziel-Abstand, Analysten-Rating (1 = Strong Buy) und Änderung der Gewinnschätzung über 90 Tage. Tippe auf eine Spalte zum Sortieren.</p>
+    <p class="muted">Aktien-Score aus Rücksetzer vom 52-Wochen-Hoch, RSI, Kursziel-Abstand, Analysten-Rating (1 = Strong Buy) und Änderung der Gewinnschätzung über 90 Tage. Tippe auf eine Spalte zum Sortieren.</p>
   </section>
 
   <footer>
@@ -134,10 +144,14 @@ function renderHero(d) {
   label.textContent = d.signal.label;
   label.style.color = COLORS[d.signal.color];
   document.getElementById("text").textContent = d.signal.text;
-  const i = d.info;
-  document.getElementById("info").innerHTML =
-    (i.fear_greed != null ? `<span>Fear &amp; Greed <b>${fmt(i.fear_greed, 0)}</b> <span class="muted">${i.mood}</span></span>` : "") +
-    (i.vix != null ? `<span>VIX <b>${fmt(i.vix, 1)}</b></span>` : "");
+  document.getElementById("score").textContent = d.score == null ? "–" : d.score;
+  document.getElementById("score").style.color = COLORS[d.signal.color];
+  const bar = document.getElementById("scorebar");
+  bar.style.width = (d.score || 0) + "%";
+  bar.style.background = COLORS[d.signal.color];
+  document.getElementById("parts").innerHTML = (d.score_parts || []).map(p =>
+    `<span>${p.name} <b>${p.points == null ? "–" : p.points}</b></span>`).join("") +
+    `<span>ab 50 ist die Schwelle erreicht</span>`;
   const asof = new Date(d.asof + "T12:00:00");
   document.getElementById("asof").textContent = "Stand " + asof.toLocaleDateString("de-DE", { day: "numeric", month: "short", year: "numeric" });
   document.getElementById("generated").textContent = "Berechnet " + new Date(d.generated).toLocaleString("de-DE");
@@ -147,10 +161,6 @@ function renderRules(d) {
   document.getElementById("rules").innerHTML = d.rules.map(r => `<div class="rule">
       <span class="check" style="background:${r.ok ? "var(--green)" : "var(--grey)"}">${r.ok ? "✓" : "–"}</span>
       <span><b>${r.label}</b><span class="muted">${r.value}</span></span></div>`).join("");
-  const re = d.reentry;
-  if (re) document.getElementById("rules").innerHTML += `<div class="rule">
-      <span class="check" style="background:${re.ok ? "var(--green)" : "var(--grey)"}">${re.ok ? "✓" : "–"}</span>
-      <span><b>${re.label}</b><span class="muted">${re.value}</span></span></div>`;
 }
 
 function renderExits(d) {
@@ -191,7 +201,7 @@ function sliceHistory(h) {
     const cut = end.toISOString().slice(0, 10);
     while (i0 < h.dates.length - 1 && h.dates[i0] < cut) i0++;
   }
-  return { dates: h.dates.slice(i0), ndx: h.ndx.slice(i0), sma: h.sma200.slice(i0) };
+  return { dates: h.dates.slice(i0), ndx: h.ndx.slice(i0), sma: h.sma200.slice(i0), score: (h.score || []).slice(i0) };
 }
 
 function timeTicks(dates) {
@@ -253,7 +263,7 @@ function renderChart(d) {
     const [yy, mm, dd] = h.dates[i].split("-");
     const dist = h.sma[i] ? (h.ndx[i] / h.sma[i] - 1) * 100 : null;
     const mark = buys.has(h.dates[i]) ? ' · <b style="color:var(--green)">Kauf</b>' : sells.has(h.dates[i]) ? ' · <b style="color:var(--red)">Verkauf</b>' : "";
-    tip.innerHTML = `${dd}.${mm}.${yy} · Nasdaq <b>${fmt(h.ndx[i], 0)}</b>${dist == null ? "" : ` · ${dist >= 0 ? "+" : ""}${fmt(dist, 1, " %")} zur Linie`}${mark}`;
+    tip.innerHTML = `${dd}.${mm}.${yy} · Nasdaq <b>${fmt(h.ndx[i], 0)}</b>${dist == null ? "" : ` · ${dist >= 0 ? "+" : ""}${fmt(dist, 1, " %")} zur Linie`}${h.score[i] == null ? "" : ` · Score <b>${h.score[i]}</b>`}${mark}`;
     tip.style.display = "block";
     tip.style.left = Math.min(Math.max(0, px - tip.offsetWidth / 2), rc.width - tip.offsetWidth) + "px";
   };

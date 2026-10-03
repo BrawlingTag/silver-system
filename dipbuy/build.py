@@ -1,4 +1,4 @@
-"""Holt die Daten, prüft die Kauf- und Verkaufsregeln und schreibt site/data.json.
+"""Holt die Daten, berechnet Score, Kauf- und Verkaufssignal und schreibt site/data.json.
 
 Aufruf: python -m dipbuy.build [ausgabedatei]
 """
@@ -39,7 +39,7 @@ def gather_market(src) -> dict:
         s = px[t].dropna() if t in px else None
         return s.reindex(idx).ffill() if s is not None and len(s) else None
 
-    fg = src.fear_greed(days=800)
+    fg = src.fear_greed(days=2500)  # so weit zurück wie CNN es hergibt, sonst 800 Tage
     return {
         "spx": spx,
         "ndx": col("^NDX"),
@@ -68,54 +68,64 @@ def mood(fear_greed) -> str:
     return "Extreme Gier"
 
 
-def rule_rows(row) -> list:
-    pct = lambda v: f"{v:+.1f} %".replace(".", ",")  # noqa: E731
+def rule_rows(sig) -> list:
+    pct = lambda v: f"{v:.1f} %".replace(".", ",")  # noqa: E731
+    num = lambda v: "–" if pd.isna(v) else f"{v:.1f}".replace(".", ",")  # noqa: E731
+    w = config.SETUP_WINDOW
+    note = lambda ok, now: "" if now or not ok else f", erfüllt in den letzten {w} Tagen"  # noqa: E731
+    fg = sig["fear_greed"]
     return [
         {
-            "label": f"Rücksetzer: Nasdaq 100 mindestens {config.DIP_PCT:g} % unter dem Hoch",
-            "value": f"heute {pct(-row['drawdown'])}, tiefster Stand der letzten {config.DIP_WINDOW} Tage {pct(-row['drawdown_max'])}",
-            "ok": bool(row["dip"]),
+            "label": f"S&P 500 mindestens {config.ATH_PCT:g} % unter dem Allzeithoch",
+            "value": f"heute {pct(sig['drawdown'])} darunter" + note(sig["c_drawdown"], sig["drawdown"] >= config.ATH_PCT),
+            "ok": bool(sig["c_drawdown"]),
         },
         {
-            "label": "Aufwärtstrend: Nasdaq 100 über der 200-Tage-Linie",
-            "value": f"{pct(row['distance'])} zur Linie",
-            "ok": bool(row["trend"]),
+            "label": f"VIX über {config.VIX_MIN:g}",
+            "value": f"heute {num(sig['vix'])}" + note(sig["c_vix"], sig["vix"] > config.VIX_MIN),
+            "ok": bool(sig["c_vix"]),
         },
         {
-            "label": f"Dip dreht: RSI kreuzt über seinen {config.RSI_MA}-Tage-Schnitt",
-            "value": f"RSI {row['rsi']:.0f}, Schnitt {row['rsi_ma']:.0f}"
-                     + (f", gekreuzt in den letzten {config.SIGNAL_HOLD} Tagen" if row["turn_recent"] else ""),
-            "ok": bool(row["turn_recent"]),
+            "label": f"CNN Fear & Greed unter {config.FG_MAX:g}",
+            "value": ("kein Wert, zählt als erfüllt" if pd.isna(fg)
+                      else f"heute {fg:.0f} ({mood(fg)})" + note(sig["c_fear_greed"], fg < config.FG_MAX)),
+            "ok": bool(sig["c_fear_greed"]),
+        },
+        {
+            "label": f"Dann kaufen: RSI über dem Schnitt der letzten {config.RSI_MA} Tage",
+            "value": f"RSI {sig['rsi']:.0f}, Schnitt {sig['rsi_ma']:.0f}",
+            "ok": bool(sig["turn"]),
         },
     ]
 
 
-def reentry_row(row) -> dict:
-    return {
-        "label": "Oder Wiedereinstieg: Nasdaq 100 nach einem Verkauf wieder über der 200-Tage-Linie",
-        "value": "heute erfüllt" if row["reentry_recent"] else "nicht erfüllt",
-        "ok": bool(row["reentry_recent"]),
-    }
+def score_parts(sig) -> list:
+    names = {"drawdown": "S&P unter Hoch", "vix": "VIX", "fear_greed": "CNN"}
+    return [{"name": n, "points": None if pd.isna(sig["score_" + k]) else round(float(sig["score_" + k]))}
+            for k, n in names.items()]
 
 
 def build(src, out_path: Path) -> dict:
     d = gather_market(src)
-    rl = ind.rules(d["ndx"])
-    last = rl.iloc[-1]
-    asof = last.name
+    sig = ind.signals(d["spx"], d["vix"], d["fear_greed"])
+    pos = ind.hold_state(d["ndx"], sig["buy"])
+    last_sig, last_pos = sig.iloc[-1], pos.iloc[-1]
+    asof = sig.index[-1]
 
     exits = []
     for t, name in config.INDEXES.items():
         s = d["spx"] if t == "^GSPC" else (d["ndx"] if t == "^NDX" else d["world"])
         if s is not None:
-            exits.append({"name": name, **ind.exit_signal(s)})
+            exits.append({"name": name, **ind.exit_signal(s, sig["buy"])})
 
-    hist = rl.loc[config.HISTORY_FROM:]
+    hist = pos.loc[config.HISTORY_FROM:]
+    hsig = sig.reindex(hist.index)
     history = {
         "dates": [x.strftime("%Y-%m-%d") for x in hist.index],
         "ndx": [clean(round(float(v), 1)) for v in hist["close"]],
         "sma200": [clean(round(float(v), 1)) for v in hist["sma200"]],
-        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hist["buy"] | hist["reentry"]]],
+        "score": [None if pd.isna(v) else int(round(v)) for v in hsig["score"]],
+        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hsig["buy_start"].fillna(False).astype(bool) | hist["reentry"]]],
         "sells": [x.strftime("%Y-%m-%d") for x in hist.index[hist["sell"]]],
     }
 
@@ -137,9 +147,10 @@ def build(src, out_path: Path) -> dict:
     data = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "asof": asof.strftime("%Y-%m-%d"),
-        "signal": ind.status(last),
-        "rules": rule_rows(last),
-        "reentry": reentry_row(last),
+        "signal": ind.status(last_sig, last_pos),
+        "score": None if pd.isna(last_sig["score"]) else round(float(last_sig["score"])),
+        "score_parts": score_parts(last_sig),
+        "rules": rule_rows(last_sig),
         "info": {"fear_greed": fg, "mood": mood(fg), "vix": vix},
         "exit_below": config.EXIT_BELOW,
         "exits": exits,
@@ -157,8 +168,8 @@ def main():
 
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("site/data.json")
     data = build(fetch, out)
-    log.info("%s (%s) am %s, %d Aktien -> %s",
-             data["signal"]["label"], data["signal"]["color"], data["asof"], len(data["stocks"]), out)
+    log.info("%s (%s), Score %s am %s, %d Aktien -> %s", data["signal"]["label"], data["signal"]["color"],
+             data["score"], data["asof"], len(data["stocks"]), out)
 
 
 if __name__ == "__main__":

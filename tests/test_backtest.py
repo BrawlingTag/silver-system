@@ -5,14 +5,14 @@ from tests.fake_source import FakeSource
 
 
 def test_backtest_runs_and_reports():
-    src = FakeSource(days=1500, crash_pct=0.1, crash_len=10, crash_end=300, recovery=0.2, drift=0.0015)
+    src = FakeSource(days=1500, crash_pct=0.15, crash_len=10, crash_end=300, recovery=0.2, drift=0.0015)
     result = backtest.run(src)
     assert result["summary"]["count"] >= 1
     row = result["signals"][0]
-    assert row["drawdown"] >= 6 and row["ndx_3M"] is not None
-    assert len(result["sensitivity"]) == len(backtest.DIP_PCTS) * len(backtest.RSI_MAS)
+    assert row["drawdown"] >= 4 and row["ndx_3M"] is not None and row["score"] >= 0
+    assert len(result["sensitivity"]) == len(backtest.ATH_PCTS) * len(backtest.VIX_MINS)
     text = backtest.report(result)
-    assert "Kaufsignale" in text and "Strategie" in text and "Andere Einstellungen" in text
+    assert "Kaufsignale" in text and "Strategie" in text and "Andere Schwellen" in text and "Score beim Signal" in text
 
 
 def test_first_signals_debounce():

@@ -1,4 +1,4 @@
-"""Backtest: die Kauf- und Verkaufsregeln rückwirkend ab 2007 prüfen.
+"""Backtest: Kaufsignal (Panik + RSI dreht) und Verkaufssignal rückwirkend ab 2007 prüfen.
 
 Aufruf: python -m dipbuy.backtest [ausgabedatei.json]
 """
@@ -19,8 +19,8 @@ log = logging.getLogger("dipbuy")
 EVAL_FROM = config.HISTORY_FROM
 NEW_SIGNAL_AFTER = 20  # Kaufsignale innerhalb von 20 Handelstagen zählen als ein Dip
 HORIZONS = {"3M": 63, "12M": 252}
-DIP_PCTS = [4, 6, 8, 10]
-RSI_MAS = [3, 5, 8]
+ATH_PCTS = [4, 7, 10]
+VIX_MINS = [22, 26, 30]
 
 
 def leveraged(close: pd.Series, lever: int) -> pd.Series:
@@ -46,15 +46,17 @@ def first_signals(buy: pd.Series) -> list:
     return days
 
 
-def signal_rows(ndx: pd.Series, rl: pd.DataFrame) -> list:
+def signal_rows(ndx: pd.Series, sig: pd.DataFrame) -> list:
     x3 = leveraged(ndx, 3)
     rows = []
-    for day in first_signals(rl["buy"].loc[EVAL_FROM:]):
+    for day in first_signals(sig["buy"].loc[EVAL_FROM:]):
         i = ndx.index.get_loc(day)
         after = ndx.iloc[i: i + 64]
         row = {
             "date": day.strftime("%Y-%m-%d"),
-            "drawdown": round(float(rl.loc[day, "drawdown_max"]), 1),
+            "score": round(float(sig.loc[day, "score"])),
+            "drawdown": round(float(sig.loc[day, "drawdown"]), 1),
+            "vix": round(float(sig.loc[day, "vix"]), 1),
             "further_drop": round(float((after.min() / ndx.iloc[i] - 1) * 100), 1),
         }
         for h, n in HORIZONS.items():
@@ -96,16 +98,45 @@ def baseline(ndx: pd.Series) -> dict:
 
 
 def sensitivity(d: dict, years: float) -> list:
-    """Wie ändern sich Signale und Strategie, wenn man die Regeln etwas anders einstellt?"""
+    """Wie ändern sich Signale und Strategie, wenn man die Schwellen etwas anders einstellt?"""
     ndx = d["ndx"].dropna()
     rows = []
-    for dip in DIP_PCTS:
-        for ma in RSI_MAS:
-            rl = ind.rules(ndx, dip_pct=dip, rsi_ma=ma)
-            s = summarize(signal_rows(ndx, rl), years)
-            sim = strategy.simulate(ndx, 3, rl["buy"] | rl["reentry"], rl["below"], EVAL_FROM)
-            rows.append({"dip_pct": dip, "rsi_ma": ma, **s, "cagr": sim["cagr"], "max_dd": sim["max_dd"]})
+    for ath in ATH_PCTS:
+        for vix in VIX_MINS:
+            sig = ind.signals(d["spx"], d["vix"], d["fear_greed"], ath_pct=ath, vix_min=vix)
+            pos = ind.hold_state(ndx, sig["buy"])
+            s = summarize(signal_rows(ndx, sig), years)
+            sim = strategy.simulate(ndx, 3, sig["buy"] | pos["reentry"], pos["sell"], EVAL_FROM)
+            rows.append({"ath_pct": ath, "vix_min": vix, **s, "cagr": sim["cagr"], "max_dd": sim["max_dd"]})
     return rows
+
+
+def score_buckets(rows: list) -> list:
+    """Bringt ein höherer Score beim Signal auch mehr Rendite?"""
+    if not rows:
+        return []
+    df = pd.DataFrame(rows)
+    out = []
+    for lo, hi in ((0, 60), (60, 75), (75, 101)):
+        part = df[(df["score"] >= lo) & (df["score"] < hi)]
+        v3, v12 = part["ndx3x_3M"].dropna(), part["ndx3x_12M"].dropna()
+        out.append({"range": f"{lo}–{min(hi, 100)}", "count": len(part),
+                    "ndx3x_3M": round(float(v3.mean()), 1) if len(v3) else None,
+                    "ndx3x_12M": round(float(v12.mean()), 1) if len(v12) else None})
+    return out
+
+
+def cnn_check(d: dict) -> dict:
+    """Seit es CNN-Werte gibt: wie viele Signale mit und ohne die CNN-Bedingung?"""
+    fg = d["fear_greed"]
+    if fg is None or fg.dropna().empty:
+        return {}
+    since = fg.dropna().index[0]
+    with_cnn = ind.signals(d["spx"], d["vix"], fg)["buy"].loc[since:]
+    without = ind.signals(d["spx"], d["vix"], None)["buy"].loc[since:]
+    return {"since": since.strftime("%Y-%m-%d"),
+            "with": [x.strftime("%Y-%m-%d") for x in first_signals(with_cnn)],
+            "without": [x.strftime("%Y-%m-%d") for x in first_signals(without)]}
 
 
 def fmt(v, suffix=""):
@@ -115,14 +146,16 @@ def fmt(v, suffix=""):
 def report(result: dict) -> str:
     s, b = result["summary"], result["baseline"]
     lines = [
-        f"# Backtest Kauf- und Verkaufsregeln ({result['from']} bis {result['to']})",
+        f"# Backtest Panik-Kaufsignal ({result['from']} bis {result['to']})",
         "",
-        f"Kauf: Nasdaq 100 mindestens {config.DIP_PCT:g} % unter dem Hoch (in den letzten {config.DIP_WINDOW} Tagen), "
-        f"über der 200-Tage-Linie, RSI kreuzt über seinen {config.RSI_MA}-Tage-Schnitt. "
-        f"Verkauf: mehr als {config.EXIT_BELOW:g} % unter der 200-Tage-Linie. "
-        "Wiedereinstieg: nach einem Verkauf wieder über der 200-Tage-Linie.",
+        f"Kauf: S&P 500 mindestens {config.ATH_PCT:g} % unter dem Allzeithoch, VIX über {config.VIX_MIN:g}, "
+        f"CNN Fear & Greed unter {config.FG_MAX:g} (alle in den letzten {config.SETUP_WINDOW} Tagen), "
+        f"dann RSI über dem Schnitt der letzten {config.RSI_MA} Tage. "
+        "CNN-Werte gibt es nur für die letzten Jahre, davor zählt nur S&P und VIX. "
+        f"Verkauf: Nasdaq 100 mehr als {config.EXIT_BELOW:g} % unter der 200-Tage-Linie. "
+        "Wiedereinstieg: beim nächsten Kaufsignal oder wieder über der 200-Tage-Linie.",
         "",
-        "## Dip-Kaufsignale",
+        "## Kaufsignale",
         "",
         f"{s['count']} Signale, {s.get('per_year')} pro Jahr, Abstand im Median {s.get('gap_median_days') or '–'} Tage. "
         f"Nach dem Signal fiel der Nasdaq im Schnitt noch {s.get('further_drop_avg')} %, schlimmstenfalls {s.get('further_drop_worst')} %.",
@@ -133,21 +166,33 @@ def report(result: dict) -> str:
         f"| Nasdaq 3x, 3 Monate | {fmt(s.get('ndx3x_3M'), ' %')} ({s.get('ndx3x_3M_pos')} % pos.) | {fmt(b['ndx3x_3M'], ' %')} ({b['ndx3x_3M_pos']} % pos.) |",
         f"| Nasdaq 3x, 12 Monate | {fmt(s.get('ndx3x_12M'), ' %')} ({s.get('ndx3x_12M_pos')} % pos.) | {fmt(b['ndx3x_12M'], ' %')} ({b['ndx3x_12M_pos']} % pos.) |",
         "",
+        "### Score beim Signal",
+        "",
+        "| Score | Signale | Nasdaq 3x 3M | Nasdaq 3x 12M |",
+        "| --- | --- | --- | --- |",
     ]
+    lines += [f"| {r['range']} | {r['count']} | {fmt(r['ndx3x_3M'], ' %')} | {fmt(r['ndx3x_12M'], ' %')} |"
+              for r in result["score_buckets"]]
+    c = result.get("cnn")
+    if c:
+        lines += ["", f"Seit {c['since']} (CNN-Werte vorhanden): mit CNN-Bedingung {len(c['with'])} Signale "
+                      f"({', '.join(c['with']) or 'keine'}), ohne {len(c['without'])} ({', '.join(c['without']) or 'keine'})."]
+    lines.append("")
     lines += strategy.report(result["strategies"])
     lines += [
-        "## Andere Einstellungen (Nasdaq 3x, Regeln)",
+        "## Andere Schwellen (Nasdaq 3x, Regeln)",
         "",
-        "| Rücksetzer ab | RSI-Schnitt | Signale pro Jahr | Nasdaq 3x 3M | danach noch schlimmstens | Rendite p.a. | Max. Rückgang |",
+        "| S&P unter Hoch | VIX über | Signale pro Jahr | Nasdaq 3x 3M | danach noch schlimmstens | Rendite p.a. | Max. Rückgang |",
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in result["sensitivity"]:
-        lines.append(f"| {r['dip_pct']} % | {r['rsi_ma']} Tage | {r.get('per_year', 0)} | {fmt(r.get('ndx3x_3M'), ' %')} "
+        lines.append(f"| {r['ath_pct']} % | {r['vix_min']} | {r.get('per_year', 0)} | {fmt(r.get('ndx3x_3M'), ' %')} "
                      f"| {r.get('further_drop_worst', '–')} % | {r['cagr']:+.1f} % | {r['max_dd']:.1f} % |")
-    lines += ["", "## Alle Kaufsignale", "", "| Datum | Rücksetzer | danach noch | Nasdaq 3M | Nasdaq 3x 3M | Nasdaq 3x 12M |",
-              "| --- | --- | --- | --- | --- | --- |"]
+    lines += ["", "## Alle Kaufsignale", "",
+              "| Datum | Score | S&P unter Hoch | VIX | Nasdaq danach noch | Nasdaq 3M | Nasdaq 3x 3M | Nasdaq 3x 12M |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for r in result["signals"]:
-        lines.append(f"| {r['date']} | -{r['drawdown']} % | {r['further_drop']} % | {fmt(r['ndx_3M'], ' %')} "
+        lines.append(f"| {r['date']} | {r['score']} | -{r['drawdown']} % | {r['vix']} | {r['further_drop']} % | {fmt(r['ndx_3M'], ' %')} "
                      f"| {fmt(r['ndx3x_3M'], ' %')} | {fmt(r['ndx3x_12M'], ' %')} |")
     return "\n".join(lines)
 
@@ -155,16 +200,18 @@ def report(result: dict) -> str:
 def run(src) -> dict:
     d = build.gather_market(src)
     ndx = d["ndx"].dropna()
-    rl = ind.rules(ndx)
+    sig = ind.signals(d["spx"], d["vix"], d["fear_greed"])
     span = ndx.loc[EVAL_FROM:].index
     years = (span[-1] - span[0]).days / 365.25
-    rows = signal_rows(ndx, rl)
-    strat = strategy.strategies(d, rl, EVAL_FROM)
+    rows = signal_rows(ndx, sig)
+    strat = strategy.strategies(d, sig, EVAL_FROM)
     return {
         "from": span[0].strftime("%Y-%m-%d"),
         "to": span[-1].strftime("%Y-%m-%d"),
         "signals": rows,
         "summary": summarize(rows, years),
+        "score_buckets": score_buckets(rows),
+        "cnn": cnn_check(d),
         "baseline": baseline(ndx),
         "strategies": {k: {kk: vv for kk, vv in v.items() if kk != "equity"} for k, v in strat.items()},
         "sensitivity": sensitivity(d, years),
