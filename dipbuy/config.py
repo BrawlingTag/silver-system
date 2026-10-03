@@ -50,4 +50,7 @@ VETO_SAHM = 0.5
 VETO_HY_RISE = 0.75  # Prozentpunkte in 20 Handelstagen
 VETO_CAP = GREEN_FROM - 5
 
-HISTORY_DAYS = 520  # ca. 2 Jahre Score-Verlauf auf der Seite
+# Score-Verlauf auf der Seite ab HISTORY_FROM; geladen wird ab HISTORY_START,
+# weil 200-Tage-Linien und 52-Wochen-Hochs Vorlauf brauchen
+HISTORY_START = "2004-06-01"
+HISTORY_FROM = "2007-01-01"

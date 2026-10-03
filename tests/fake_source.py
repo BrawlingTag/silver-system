@@ -26,7 +26,7 @@ class FakeSource:
         self.vix = 14 + stress * 160
         self.vix3m = 17 + stress * 100
 
-    def closes(self, tickers, period="3y"):
+    def closes(self, tickers, period="3y", start=None):
         cols = {}
         for i, t in enumerate(tickers):
             if t == "^VIX":
@@ -37,13 +37,13 @@ class FakeSource:
                 cols[t] = 100 * self.base ** (1 + 0.1 * (i % 5))
         return pd.DataFrame(cols)
 
-    def fear_greed(self):
+    def fear_greed(self, days=800):
         return (60 - self.stress * 300).clip(5, 90)
 
-    def breadth(self):
+    def breadth(self, start=None):
         return (70 - self.stress * 300).clip(5, 90)
 
-    def fred(self, series_id):
+    def fred(self, series_id, days=1500):
         if series_id == "SAHMREALTIME":
             return pd.Series(0.2, index=self.idx)
         return 3.5 + self.stress * 10

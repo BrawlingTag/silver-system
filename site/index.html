@@ -49,7 +49,17 @@
   .parts td:last-child { text-align: right; width: 38px; font-variant-numeric: tabular-nums; font-weight: 600; }
   .exit { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
   .exit:last-child { border-bottom: 0; }
-  .chart svg { width: 100%; height: auto; display: block; }
+  .chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+  .chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .chart-head h2 { margin: 0; }
+  .btn { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .ranges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .ranges button { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 99px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .ranges button.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+  #chart { position: relative; }
+  .tip { position: absolute; top: 0; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 12px; white-space: nowrap; display: none; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  .chart.full { position: fixed; inset: 0; z-index: 10; margin: 0; border-radius: 0; overflow: auto; padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left)); }
+  body.noscroll { overflow: hidden; }
   .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
   .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 5px; }
   .tablewrap { overflow-x: auto; margin: 0 -18px; padding: 0 18px; }
@@ -97,10 +107,12 @@
     <div id="exits"></div>
   </section>
 
-  <section class="card chart">
-    <h2>Verlauf</h2>
+  <section class="card chart" id="chartcard">
+    <div class="chart-head"><h2>Verlauf</h2><button class="btn" id="zoom" type="button">Vergrößern</button></div>
+    <div class="ranges" id="ranges"></div>
     <div id="chart"></div>
-    <div class="legend"><span><i style="background:var(--accent)"></i>Score</span><span><i style="background:var(--muted)"></i>S&amp;P 500</span></div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Score</span><span><i style="background:var(--muted)"></i>S&amp;P 500</span><span><i style="background:var(--green);height:8px;width:8px;border-radius:50%"></i>Kaufsignal</span></div>
+    <p class="muted" id="chartnote"></p>
   </section>
 
   <section class="card">
@@ -188,36 +200,113 @@ function renderExits(d) {
   }
 }
 
+const RANGES = [["3M", 3], ["6M", 6], ["1J", 12], ["2J", 24], ["5J", 60], ["10J", 120], ["Max", null]];
+const MONTHS = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+let range = "1J", full = false;
+try { range = localStorage.getItem("range") || range; } catch (e) {}
+
+function renderRanges(d) {
+  const box = document.getElementById("ranges");
+  box.innerHTML = RANGES.map(([k]) => `<button type="button" class="${k === range ? "on" : ""}" data-r="${k}">${k}</button>`).join("");
+  box.querySelectorAll("button").forEach(b => b.onclick = () => {
+    range = b.dataset.r;
+    try { localStorage.setItem("range", range); } catch (e) {}
+    renderRanges(d); renderChart(d);
+  });
+}
+
+function sliceHistory(h) {
+  const months = RANGES.find(r => r[0] === range)?.[1];
+  let i0 = 0;
+  if (months) {
+    const end = new Date(h.dates[h.dates.length - 1]);
+    end.setMonth(end.getMonth() - months);
+    const cut = end.toISOString().slice(0, 10);
+    while (i0 < h.dates.length - 1 && h.dates[i0] < cut) i0++;
+  }
+  return { dates: h.dates.slice(i0), score: h.score.slice(i0), spx: h.spx.slice(i0) };
+}
+
+function timeTicks(dates) {
+  const years = dates.length / 252, ticks = [];
+  if (years > 3) {
+    const step = Math.ceil(years / 8);
+    dates.forEach((s, i) => {
+      if (i && s.slice(0, 4) !== dates[i - 1].slice(0, 4) && +s.slice(0, 4) % step === 0) ticks.push([i, s.slice(0, 4)]);
+    });
+  } else {
+    const step = years > 1.5 ? 3 : years > .6 ? 2 : 1;
+    dates.forEach((s, i) => {
+      if (!i || s.slice(5, 7) === dates[i - 1].slice(5, 7)) return;
+      const m = +s.slice(5, 7) - 1;
+      if (m % step) return;
+      ticks.push([i, m === 0 ? s.slice(0, 4) : MONTHS[m]]);
+    });
+  }
+  return ticks;
+}
+
 function renderChart(d) {
-  const h = d.history, n = h.score.length;
-  if (!n) return;
-  const W = Math.max(280, document.getElementById("chart").clientWidth), H = 240, top = 8, mid = 110, gap = 14, bot = H - 20;
+  const box = document.getElementById("chart");
+  const h = sliceHistory(d.history), n = h.score.length;
+  if (n < 2) return;
+  const W = Math.max(280, box.clientWidth);
+  // Vergrößert: so hoch, wie unter Kopf und Zeitraum-Knöpfen noch Platz ist (Legende darf darunter liegen)
+  const H = full ? Math.max(200, window.innerHeight - box.offsetTop - 24) : 260;
+  const top = 8, bot = H - 20, mid = top + (bot - top) * .45, gap = 14;
   const x = i => (i / (n - 1)) * W;
-  const spx = h.spx.filter(v => v != null);
-  const lo = Math.min(...spx), hi = Math.max(...spx);
-  const yp = v => top + (1 - (v - lo) / (hi - lo || 1)) * (mid - top);
+  const spx = h.spx.filter(v => v != null && v > 0);
+  const lo = Math.log(Math.min(...spx)), hi = Math.log(Math.max(...spx));
+  const yp = v => top + (1 - (Math.log(v) - lo) / (hi - lo || 1)) * (mid - top);
   const ys = v => mid + gap + (1 - v / 100) * (bot - mid - gap);
   const path = (arr, y) => arr.map((v, i) => v == null ? "" : `${i && arr[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
   const band = (from, to, c) => `<rect x="0" y="${ys(to)}" width="${W}" height="${ys(from) - ys(to)}" fill="${c}" opacity=".12"/>`;
-  const ticks = [];
-  let lastMonth = "";
-  h.dates.forEach((s, i) => {
-    const m = s.slice(0, 7);
-    if (m !== lastMonth && (s.slice(5, 7) === "01" || s.slice(5, 7) === "07")) ticks.push([i, s]);
-    lastMonth = m;
-  });
-  const tickSvg = ticks.map(([i, s]) =>
+  const tickSvg = timeTicks(h.dates).map(([i, label]) =>
     `<line x1="${x(i)}" x2="${x(i)}" y1="${top}" y2="${bot}" stroke="var(--line)"/>
-     <text x="${x(i) + 3}" y="${H - 5}" font-size="11" fill="var(--muted)">${s.slice(5, 7) === "01" ? s.slice(0, 4) : "Jul"}</text>`).join("");
-  document.getElementById("chart").innerHTML =
+     <text x="${x(i) + 3}" y="${H - 5}" font-size="11" fill="var(--muted)">${label}</text>`).join("");
+  const buys = new Set(d.history.buys || []);
+  const dots = h.dates.map((s, i) => buys.has(s)
+    ? `<circle cx="${x(i).toFixed(1)}" cy="${ys(h.score[i]).toFixed(1)}" r="${full ? 4.5 : 3.5}" fill="var(--green)" stroke="var(--card)" stroke-width="1.5"/>` : "").join("");
+  box.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Score-Verlauf und S&P 500">
       ${tickSvg}
       ${band(0, T.red_below, "var(--red)")}${band(T.red_below, T.green_from, "var(--yellow)")}${band(T.green_from, 100, "var(--green)")}
       <path d="${path(h.spx, yp)}" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
-      <path d="${path(h.score, ys)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
-      <text x="${W - 4}" y="${ys(100) + 11}" font-size="11" fill="var(--muted)" text-anchor="end">Score</text>
-      <text x="${W - 4}" y="${top + 11}" font-size="11" fill="var(--muted)" text-anchor="end">S&amp;P 500</text>
-    </svg>`;
+      <path d="${path(h.score, ys)}" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+      ${dots}
+      <text x="4" y="${ys(100) + 12}" font-size="11" fill="var(--muted)">Score</text>
+      <text x="4" y="${top + 11}" font-size="11" fill="var(--muted)">S&amp;P 500</text>
+      <line id="cursor" y1="${top}" y2="${bot}" stroke="var(--text)" stroke-width="1" opacity="0"/>
+    </svg><div class="tip" id="tip"></div>`;
+
+  const svg = box.querySelector("svg"), tip = box.querySelector("#tip"), cur = box.querySelector("#cursor");
+  const show = ev => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * (n - 1));
+    const px = x(i) * r.width / W;
+    cur.setAttribute("x1", x(i)); cur.setAttribute("x2", x(i)); cur.setAttribute("opacity", ".35");
+    const [yy, mm, dd] = h.dates[i].split("-");
+    tip.innerHTML = `${dd}.${mm}.${yy} · Score <b>${fmt(h.score[i], 0)}</b> · S&amp;P ${fmt(h.spx[i], 0)}${buys.has(h.dates[i]) ? " · <b style=\"color:var(--green)\">Kaufsignal</b>" : ""}`;
+    tip.style.display = "block";
+    tip.style.left = Math.min(Math.max(0, px - tip.offsetWidth / 2), r.width - tip.offsetWidth) + "px";
+  };
+  const hide = () => { tip.style.display = "none"; cur.setAttribute("opacity", "0"); };
+  svg.addEventListener("pointermove", show);
+  svg.addEventListener("pointerdown", show);
+  svg.addEventListener("pointerleave", hide);
+
+  const fg = d.history.fear_greed_from;
+  document.getElementById("chartnote").textContent = fg && h.dates[0] < fg
+    ? `S&P 500 logarithmisch. Vor dem ${fg.split("-").reverse().join(".")} ohne CNN Fear & Greed berechnet, ältere Werte gibt CNN nicht heraus.`
+    : "S&P 500 logarithmisch.";
+}
+
+function setFull(on, d) {
+  full = on;
+  document.getElementById("chartcard").classList.toggle("full", on);
+  document.body.classList.toggle("noscroll", on);
+  document.getElementById("zoom").textContent = on ? "Schließen" : "Vergrößern";
+  renderChart(d);
 }
 
 const COLS = [
@@ -263,7 +352,9 @@ fetch("data.json", { cache: "no-store" })
   .then(r => r.json())
   .then(d => {
     T = d.thresholds;
-    renderHero(d); renderSubs(d); renderExits(d); renderChart(d);
+    renderHero(d); renderSubs(d); renderExits(d); renderRanges(d); renderChart(d);
+    document.getElementById("zoom").onclick = () => setFull(!full, d);
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && full) setFull(false, d); });
     STOCKS = d.stocks; renderStocks();
     document.getElementById("more").onclick = () => { showAll = !showAll; renderStocks(); };
     let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => renderChart(d), 150); });

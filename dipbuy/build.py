@@ -47,7 +47,7 @@ def clean(x):
 
 def gather_market(src) -> dict:
     tickers = list(config.INDEXES) + [config.VIX, config.VIX3M]
-    px = src.closes(tickers, period="3y")
+    px = src.closes(tickers, start=config.HISTORY_START)
     spx = px["^GSPC"].dropna()
     idx = spx.index
 
@@ -67,11 +67,11 @@ def gather_market(src) -> dict:
         "world": col("URTH"),
         "vix": col(config.VIX),
         "vix3m": col(config.VIX3M),
-        "fear_greed": aligned(src.fear_greed()),
-        "breadth": aligned(src.breadth()),
-        "hy_spread": aligned(src.fred("BAMLH0A0HYM2")),
-        "baa_spread": aligned(src.fred("BAA10Y")),
-        "sahm": aligned(src.fred("SAHMREALTIME")),
+        "fear_greed": aligned(src.fear_greed(days=8000)),
+        "breadth": aligned(src.breadth(start=config.HISTORY_START)),
+        "hy_spread": aligned(src.fred("BAMLH0A0HYM2", days=9000)),
+        "baa_spread": aligned(src.fred("BAA10Y", days=9000)),
+        "sahm": aligned(src.fred("SAHMREALTIME", days=9000)),
     }
 
 
@@ -140,11 +140,16 @@ def build(src, out_path: Path) -> dict:
         if s is not None:
             exits.append({"name": name, **ind.exit_signal(s)})
 
-    hist = sc.dropna(subset=["score"]).tail(config.HISTORY_DAYS)
+    hist = sc.loc[config.HISTORY_FROM:].dropna(subset=["score"])
+    fg = d["fear_greed"]
     history = {
         "dates": [x.strftime("%Y-%m-%d") for x in hist.index],
         "score": [round(float(v), 1) for v in hist["score"]],
         "spx": [clean(round(float(v), 2)) for v in d["spx"].reindex(hist.index)],
+        # Tage mit neuem Kaufsignal (erster Tag von "Dip-Ende: kaufen")
+        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hist["trigger"].astype(bool)]],
+        # Ab hier fließt CNN Fear & Greed ein (ältere Daten gibt CNN nicht heraus)
+        "fear_greed_from": fg.dropna().index[0].strftime("%Y-%m-%d") if fg is not None and fg.notna().any() else None,
     }
 
     stocks = []

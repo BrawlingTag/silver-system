@@ -68,7 +68,7 @@ def test_veto_caps_score(tmp_path):
     src = FakeSource(crash_pct=0.3, crash_end=8, recovery=0.1)
     hy = pd.Series(4.0, index=src.idx)
     hy.iloc[-20:] = [4.0 + 0.1 * i for i in range(20)]
-    src.fred = lambda sid: pd.Series(0.7, index=src.idx) if sid == "SAHMREALTIME" else hy
+    src.fred = lambda sid, **kw: pd.Series(0.7, index=src.idx) if sid == "SAHMREALTIME" else hy
     out = tmp_path / "d.json"
     data = build.build(src, out)
     assert data["veto"]
@@ -77,9 +77,9 @@ def test_veto_caps_score(tmp_path):
 
 def test_missing_sources_still_build(tmp_path):
     src = FakeSource(crash_pct=0.2, crash_end=5)
-    src.fear_greed = lambda: None
-    src.breadth = lambda: None
-    src.fred = lambda sid: None
+    src.fear_greed = lambda **kw: None
+    src.breadth = lambda **kw: None
+    src.fred = lambda sid, **kw: None
     data = build.build(src, tmp_path / "d.json")
     assert data["sub"]["makro"] is None
     assert 0 <= data["score"] <= 100
@@ -97,3 +97,11 @@ def test_stock_score_prefers_dip_with_rising_estimates():
     down = pd.Series([100 + i * 0.3 for i in range(250)] + [175 - i * 1.5 for i in range(50)], index=idx)
     info = {"target": 200.0, "rating": 1.7, "revision": 3.0}
     assert ind.stock_score(down, info)["score"] > ind.stock_score(up, info)["score"]
+
+
+def test_history_has_buys_and_fear_greed_start(tmp_path):
+    data = build.build(FakeSource(), tmp_path / "d.json")
+    h = data["history"]
+    assert len(h["dates"]) == len(h["score"]) == len(h["spx"]) > 500
+    assert set(h["buys"]) <= set(h["dates"])
+    assert h["fear_greed_from"] == h["dates"][0]

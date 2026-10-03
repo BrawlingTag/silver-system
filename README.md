@@ -25,7 +25,7 @@ Backtest 2007 bis 2026 mit diesen Einstellungen: 44 Signale (rund 2 pro Jahr), M
 - `dipbuy/fetch.py` holt die Daten (Yahoo Finance, CNN, FRED, Wikipedia). Fällt eine Quelle aus, fehlt nur ihr Indikator.
 - `dipbuy/indicators.py` rechnet Indikatoren und Scores.
 - `dipbuy/build.py` schreibt alles nach `site/data.json`.
-- `site/index.html` ist die Seite.
+- `site/index.html` ist die Seite. Der Verlauf reicht bis 2007 zurück, mit Zeitraumauswahl, Vollbild und Kaufsignalen als grüne Punkte.
 - `.github/workflows/update.yml` läuft werktags um 22:15 UTC, testet, rechnet und veröffentlicht.
 
 Lokal ausprobieren:
