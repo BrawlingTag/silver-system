@@ -35,7 +35,7 @@ PANIC = ((300, 0.15), (10, -1.05), (2, 1.0))
 
 def today(spx, vix, fg):
     sig = ind.signals(spx, vix, fg)
-    pos = ind.hold_state(spx, sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)
+    pos = ind.greed_exit(sig)
     return sig, pos, ind.status(sig.iloc[-1], pos.iloc[-1])
 
 
@@ -99,22 +99,6 @@ def test_sell_only_3_percent_below_line():
     assert ind.exit_signal(s.where(s.index != s.index[-1], sma * 0.96))["hold"] is False
 
 
-def test_crash_below_line_says_sell():
-    spx = series((300, 0.15), (25, -1.0))
-    _, pos, _ = today(spx, flat(spx, (326, 15)), None)
-    first_sell = pos.index[pos["sell"]][0]
-    st = ind.status(ind.signals(spx, None).loc[first_sell], pos.loc[first_sell])
-    assert st["label"] == "Verkaufen" and st["color"] == "red"
-
-
-def test_stays_out_after_sell_until_back_above_line():
-    spx = series((300, 0.15), (18, -1.0), (4, 1.0))
-    _, pos, st = today(spx, flat(spx, (323, 15)), None)
-    assert pos["sell"].any() and pos["out"].iloc[-1]
-    assert st["label"] == "Draußen bleiben"
-    assert ind.exit_signal(spx)["hold"] is False
-
-
 def test_reentry_after_sell():
     s = series((300, 0.15), (40, -1.0), (60, 1.2))
     pos = ind.hold_state(s)
@@ -133,12 +117,13 @@ def test_buy_signal_ends_sold_state():
 
 def test_output_shape(tmp_path):
     data = run(tmp_path, crash_pct=0.08, crash_end=3)
-    assert {"signal", "score", "score_parts", "rules", "info", "exits", "history", "stocks"} <= set(data)
+    assert {"signal", "score", "score_parts", "rules", "info", "sell", "history", "stocks"} <= set(data)
     assert len(data["rules"]) == 4 and all(isinstance(r["ok"], bool) for r in data["rules"])
     assert len(data["score_parts"]) == 3
-    assert len(data["exits"]) == 3
     h = data["history"]
-    assert len(h["dates"]) == len(h["ndx"]) == len(h["sma200"]) == len(h["score"]) > 500
+    assert [i["name"] for i in h["indexes"]] == ["Nasdaq 100", "S&P 500", "MSCI World", "MSCI ACWI"]
+    assert all(len(i["close"]) == len(i["sma200"]) == len(h["dates"]) for i in h["indexes"])
+    assert len(h["dates"]) == len(h["score"]) > 500
     assert set(h["buys"]) <= set(h["dates"]) and set(h["sells"]) <= set(h["dates"])
     assert len(data["stocks"]) == 40
     assert data["info"]["fear_greed"] is not None
@@ -196,15 +181,30 @@ def test_buy_below_sell_mark_ignored_when_strict():
     assert ind.hold_state(s, buy, buy_overrides=False)["out"].iloc[-1]
 
 
-def test_buy_signal_in_bear_market():
-    # Langer Absturz weit unter die Linie, Panik, dann dreht der RSI
-    spx = series((300, 0.15), (30, -1.0), (2, 1.0))
-    sig = ind.signals(spx, flat(spx, (301, 15), (32, 40)), flat(spx, (301, 60), (32, 10)))
-    assert sig["buy"].iloc[-1]
-    # Befolgt: Kaufen
-    pos = ind.hold_state(spx, sig["buy"], buy_overrides=True)
-    assert ind.status(sig.iloc[-1], pos.iloc[-1])["label"] == "Kaufen"
-    # Nicht befolgt: draußen bleiben
-    pos = ind.hold_state(spx, sig["buy"], buy_overrides=False)
-    st = ind.status(sig.iloc[-1], pos.iloc[-1])
-    assert pos["out"].iloc[-1] and st["label"] == "Draußen bleiben" and "Kaufsignal" in st["text"]
+def test_sell_two_days_after_extreme_greed():
+    spx = series((330, 0.1))
+    fg = flat(spx, (300, 60), (5, 88), (26, 70))
+    sig, pos, _ = today(spx, flat(spx, (331, 15)), fg)
+    first_greed = pos.index[pos["greed_start"]][0]
+    sells = pos.index[pos["sell"]]
+    assert len(sells) == 1 and sells[0] == pos.index[pos.index.get_loc(first_greed) + 2]
+    st = ind.status(sig.loc[sells[0]], pos.loc[sells[0]])
+    assert st["label"] == "Verkaufen" and st["color"] == "red"
+    st = ind.status(sig.loc[first_greed], pos.loc[first_greed])
+    assert st["label"] == "Extreme Gier"
+    assert pos["out"].iloc[-1] and ind.status(sig.iloc[-1], pos.iloc[-1])["label"] == "Draußen bleiben"
+
+
+def test_buy_signal_ends_out_state_after_greed_sell():
+    spx = series((300, 0.15), (3, 0.1), (10, -1.05), (2, 1.0))
+    fg = flat(spx, (280, 60), (3, 90), (20, 60), (13, 12))
+    sig, pos, st = today(spx, flat(spx, (304, 15), (12, 35)), fg)
+    assert pos["sell"].any() and sig["buy"].iloc[-1]
+    assert not pos["out"].iloc[-1] and st["label"] == "Kaufen"
+
+
+def test_no_sell_without_cnn():
+    spx = series((330, 0.1))
+    _, pos, _ = today(spx, flat(spx, (331, 15)), None)
+    assert not pos["sell"].any() and not pos["out"].any()
+

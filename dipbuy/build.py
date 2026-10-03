@@ -10,6 +10,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from . import config
@@ -44,6 +45,7 @@ def gather_market(src) -> dict:
         "spx": spx,
         "ndx": col("^NDX"),
         "world": col("URTH"),
+        "acwi": col("ACWI"),
         "vix": col(config.VIX),
         "fear_greed": fg.sort_index() if fg is not None else None,
     }
@@ -105,28 +107,52 @@ def score_parts(sig) -> list:
             for k, n in names.items()]
 
 
+def sell_info(pos) -> dict:
+    """Stand des Verkaufssignals für die Seite."""
+    last = pos.iloc[-1]
+    fg = last["fear_greed"]
+    greed_days = pos.index[pos["greed_start"]]
+    sells = pos.index[pos["sell"]]
+    hold = ~pos["out"]
+    changed = np.flatnonzero(hold.ne(hold.shift()).to_numpy())
+    return {
+        "threshold": config.SELL_FG,
+        "delay": config.SELL_DELAY,
+        "fear_greed": None if pd.isna(fg) else round(float(fg)),
+        "mood": "" if pd.isna(fg) else mood(float(fg)),
+        "hold": bool(hold.iloc[-1]),
+        "days": int(len(hold) - 1 - changed[-1]) if len(changed) else None,
+        "last_greed": greed_days[-1].strftime("%Y-%m-%d") if len(greed_days) else None,
+        "last_sell": sells[-1].strftime("%Y-%m-%d") if len(sells) else None,
+    }
+
+
 def build(src, out_path: Path) -> dict:
     d = gather_market(src)
     sig = ind.signals(d["spx"], d["vix"], d["fear_greed"])
-    pos = ind.hold_state(d["ndx"], sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)
+    pos = ind.greed_exit(sig)
     last_sig, last_pos = sig.iloc[-1], pos.iloc[-1]
     asof = sig.index[-1]
 
-    exits = []
-    for t, name in config.INDEXES.items():
-        s = d["spx"] if t == "^GSPC" else (d["ndx"] if t == "^NDX" else d["world"])
-        if s is not None:
-            exits.append({"name": name, **ind.exit_signal(s, sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)})
-
-    hist = pos.loc[config.HISTORY_FROM:]
-    hsig = sig.reindex(hist.index)
+    hist = sig.loc[config.HISTORY_FROM:].index
+    hpos = pos.reindex(hist)
+    keys = {"^NDX": "ndx", "^GSPC": "spx", "URTH": "world", "ACWI": "acwi"}
+    order = ["^NDX", "^GSPC", "URTH", "ACWI"]
+    rnd = lambda s: [None if pd.isna(v) else round(float(v), 2) for v in s]  # noqa: E731
+    indexes = []
+    for t in order:
+        s = d.get(keys[t])
+        if s is None or s.dropna().empty:
+            continue
+        s = s.reindex(sig.index)
+        indexes.append({"name": config.INDEXES[t], "close": rnd(s.reindex(hist)),
+                        "sma200": rnd(s.rolling(200).mean().reindex(hist))})
     history = {
-        "dates": [x.strftime("%Y-%m-%d") for x in hist.index],
-        "ndx": [clean(round(float(v), 1)) for v in hist["close"]],
-        "sma200": [clean(round(float(v), 1)) for v in hist["sma200"]],
-        "score": [None if pd.isna(v) else int(round(v)) for v in hsig["score"]],
-        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[(hsig["buy_start"].fillna(False).astype(bool) & ~hist["out"]) | hist["reentry"]]],
-        "sells": [x.strftime("%Y-%m-%d") for x in hist.index[hist["sell"]]],
+        "dates": [x.strftime("%Y-%m-%d") for x in hist],
+        "indexes": indexes,
+        "score": [None if pd.isna(v) else int(round(v)) for v in sig["score"].reindex(hist)],
+        "buys": [x.strftime("%Y-%m-%d") for x in hist[sig["buy_start"].reindex(hist).to_numpy()]],
+        "sells": [x.strftime("%Y-%m-%d") for x in hist[hpos["sell"].to_numpy()]],
     }
 
     stocks = []
@@ -152,13 +178,12 @@ def build(src, out_path: Path) -> dict:
         "score_parts": score_parts(last_sig),
         "rules": rule_rows(last_sig),
         "info": {"fear_greed": fg, "mood": mood(fg), "vix": vix},
-        "exit_below": config.EXIT_BELOW,
-        "exits": exits,
+        "sell": sell_info(pos),
         "history": history,
         "stocks": stocks,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(clean(data), ensure_ascii=False, indent=1, allow_nan=False))
+    out_path.write_text(json.dumps(clean(data), ensure_ascii=False, separators=(",", ":"), allow_nan=False))
     return data
 
 

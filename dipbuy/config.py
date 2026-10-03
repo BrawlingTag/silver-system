@@ -7,7 +7,8 @@ Alle Schwellen sind Startwerte und sollen per Backtest nachjustiert werden.
 INDEXES = {
     "^GSPC": "S&P 500",
     "^NDX": "Nasdaq 100",
-    "URTH": "MSCI World",  # iShares MSCI World ETF als Stellvertreter
+    "URTH": "MSCI World",  # iShares MSCI World ETF als Stellvertreter (ab 2012)
+    "ACWI": "MSCI ACWI",   # iShares MSCI ACWI ETF als Stellvertreter (ab 2008)
 }
 VIX = "^VIX"
 
@@ -41,11 +42,13 @@ SCORE_PARTS = {
 # Verkaufen, Wiedereinstieg und Verlauf laufen auf dem Nasdaq 100 (darauf wird gehebelt gekauft)
 TRADE_INDEX = "^NDX"
 
-# Verkaufssignal: Index schließt mehr als EXIT_BELOW Prozent unter seiner 200-Tage-Linie
+# Verkaufssignal: SELL_DELAY Handelstage, nachdem CNN Fear & Greed über SELL_FG gestiegen ist (extreme Gier).
+# Danach draußen bis zum nächsten Kaufsignal.
+SELL_FG = 85.0
+SELL_DELAY = 2
+
+# Nur noch zum Vergleich im Backtest: Verkauf, wenn der Index mehr als EXIT_BELOW % unter seiner 200-Tage-Linie schließt
 EXIT_BELOW = 3.0
-# Kaufsignal auch dann befolgen, wenn der Nasdaq 100 unter der Verkaufsmarke liegt (Bärenmarkt)?
-# Paul: ja (3. Okt. 2026). Im Backtest 2007-2026 mit 3x: 149 € bei größtem Verlust -93 %; mit False 150 € bei -76 %.
-BUY_BELOW_EXIT = True
 
 # Verlauf auf der Seite ab HISTORY_FROM; geladen wird ab HISTORY_START,
 # weil 200-Tage-Linien und das Allzeithoch Vorlauf brauchen

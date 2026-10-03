@@ -151,30 +151,48 @@ def _hold_loop(close, buy, exit_below, hold, stop, buy_overrides) -> pd.DataFram
     return out
 
 
+def greed_exit(sig: pd.DataFrame, threshold: float = None, delay: int = None, hold: int = None) -> pd.DataFrame:
+    """Verkaufssignal `delay` Handelstage, nachdem CNN Fear & Greed über `threshold` gestiegen ist.
+
+    Danach draußen bis zum nächsten Kaufsignal. Tage ohne CNN-Wert lösen nie einen Verkauf aus.
+    """
+    threshold = config.SELL_FG if threshold is None else threshold
+    delay = config.SELL_DELAY if delay is None else delay
+    hold = hold or config.SIGNAL_HOLD
+    fg = sig["fear_greed"]
+    greed = fg > threshold
+    out = pd.DataFrame({"fear_greed": fg, "greed": greed}, index=sig.index)
+    out["greed_start"] = greed & ~greed.shift(1, fill_value=False)
+    out["sell"] = out["greed_start"].shift(delay, fill_value=False)
+    # Kauf am selben Tag gewinnt; vor dem ersten Signal gilt "halten"
+    state = pd.Series(np.nan, index=sig.index).mask(out["sell"], 1.0).mask(sig["buy"], 0.0).ffill()
+    out["out"] = state == 1.0
+    out["sell_recent"] = recent(out["sell"], hold) & out["out"]
+    out["sell_pending"] = recent(out["greed_start"], delay) & ~out["sell"] if delay else False
+    return out
+
+
 def status(sig, pos) -> dict:
-    """Ampel für den heutigen Tag aus je einer Zeile von `signals` (S&P 500) und `hold_state` (Nasdaq 100)."""
-    if pd.isna(sig["rsi"]) or pd.isna(pos["sma200"]):
+    """Ampel für den heutigen Tag aus je einer Zeile von `signals` und `greed_exit`."""
+    if pd.isna(sig["rsi"]):
         return {"color": "grey", "label": "Keine Daten", "text": "Zu wenig Kursdaten."}
-    if pos["sell_recent"] and pos["out"]:
+    if pos["sell_recent"]:
         return {"color": "red", "label": "Verkaufen",
-                "text": f"Der Nasdaq 100 ist mehr als {config.EXIT_BELOW:g} % unter seine 200-Tage-Linie gefallen. Hebel raus."}
-    if sig["buy_recent"] and pos["out"]:
-        return {"color": "red", "label": "Draußen bleiben",
-                "text": f"Kaufsignal, aber der Nasdaq 100 liegt mehr als {config.EXIT_BELOW:g} % unter seiner 200-Tage-Linie. "
-                        "So ein Kauf hat 2008 und 2022 viel gekostet. Warten, bis er wieder näher an der Linie ist."}
+                "text": f"CNN Fear & Greed ist vor {config.SELL_DELAY} Handelstagen über {config.SELL_FG:g} gestiegen "
+                        "(extreme Gier). Hebel raus und auf das nächste Kaufsignal warten."}
     if sig["buy_recent"]:
         return {"color": "green", "label": "Kaufen",
                 "text": "Panik am Markt und der RSI dreht nach oben. Je höher der Score, desto stärker das Signal."}
-    if pos["reentry_recent"]:
-        return {"color": "green", "label": "Wieder einsteigen",
-                "text": "Der Nasdaq 100 ist nach dem Verkauf zurück über seiner 200-Tage-Linie."}
+    if pos["sell_pending"]:
+        return {"color": "yellow", "label": "Extreme Gier",
+                "text": f"CNN Fear & Greed ist über {config.SELL_FG:g}. Verkaufen {config.SELL_DELAY} Handelstage danach."}
     if sig["setup"]:
         return {"color": "yellow", "label": "Panik, RSI abwarten",
                 "text": f"Alle drei Panik-Bedingungen sind erfüllt. Kaufen, sobald der RSI über dem Schnitt "
                         f"der letzten {config.RSI_MA} Tage liegt."}
     if pos["out"]:
         return {"color": "red", "label": "Draußen bleiben",
-                "text": "Verkauft. Wieder rein beim nächsten Kaufsignal oder wenn der Nasdaq 100 über seiner 200-Tage-Linie schließt."}
+                "text": "Verkauft. Wieder rein beim nächsten Kaufsignal."}
     met = int(sig["c_drawdown"]) + int(sig["c_vix"]) + int(sig["c_fear_greed"])
     return {"color": "grey", "label": "Kein Kaufsignal",
             "text": f"{met} von 3 Panik-Bedingungen erfüllt. Halten, was du hast."}
