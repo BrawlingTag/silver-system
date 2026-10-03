@@ -16,18 +16,16 @@ Die Seite läuft kostenlos auf GitHub Pages und aktualisiert sich automatisch we
 
 Gekauft wird, sobald dann der RSI (14 Tage) des S&P 500 über dem Schnitt der letzten 2 Tage liegt. So steigt man nicht ein, solange es noch keine Erholung gibt.
 
-**Verkaufen**, wenn der Nasdaq 100 mehr als 3 % unter seine 200-Tage-Linie fällt. **Wieder einsteigen** beim nächsten Kaufsignal oder wenn er wieder über der Linie schließt. Ein Kaufsignal gilt auch, wenn der Nasdaq 100 tief unter seiner Linie liegt (`BUY_BELOW_EXIT` in `dipbuy/config.py`).
+**Verkaufen** 2 Handelstage, nachdem CNN Fear & Greed über 85 gestiegen ist (extreme Gier). Danach draußen bis zum nächsten Kaufsignal.
 
-Im Backtest 2007 bis 2026 machte Nasdaq 100 mit 3x Hebel nach diesen Regeln aus 1 € rund 149 € (+28,8 % pro Jahr, größter Verlust −93 %, weil man im September 2008 mitten in den Absturz gekauft hätte). Kaufsignale unter der Verkaufsmarke auszulassen hätte 150 € bei −76 % gebracht. Dauerhaft 3x halten brachte 138 € bei −95 %, ohne Hebel 18 €. Die Kaufsignale allein waren nicht besser als ein beliebiger Tag: im Schnitt +8,7 % nach 3 Monaten mit 3x, gegenüber +11,0 % an irgendeinem Tag.
-
-CNN Fear & Greed gibt es nur für die letzten Jahre; im Backtest davor zählt nur S&P 500 und VIX. Die Watchlist bewertet 40 große Growth-Werte aus dem Nasdaq 100 nach Rücksetzer, RSI, Kursziel-Abstand, Analysten-Rating und Änderung der Gewinnschätzung. Alle Werte stehen in `dipbuy/config.py`.
+CNN Fear & Greed gibt es erst ab Mitte 2024; im Backtest zählt davor beim Kauf nur S&P 500 und VIX, und es gibt keine Verkaufssignale. Die Watchlist bewertet 40 große Growth-Werte aus dem Nasdaq 100 nach Rücksetzer, RSI, Kursziel-Abstand, Analysten-Rating und Änderung der Gewinnschätzung. Alle Werte stehen in `dipbuy/config.py`.
 
 ## Aufbau
 
 - `dipbuy/fetch.py` holt die Daten (Yahoo Finance, CNN). Fällt CNN aus, zählt die CNN-Bedingung als erfüllt.
 - `dipbuy/indicators.py` berechnet Score, Kauf- und Verkaufssignal für jeden Tag.
 - `dipbuy/build.py` schreibt alles nach `site/data.json`.
-- `site/index.html` ist die Seite. Der Verlauf reicht bis 2007 zurück, mit Zeitraumauswahl, Vollbild sowie Kauf- und Verkaufssignalen als Punkte.
+- `site/index.html` ist die Seite. Der Verlauf reicht bis 2007 zurück: Nasdaq 100, S&P 500, MSCI World oder MSCI ACWI, darunter der Score, mit Zeitraumauswahl, Vollbild sowie Kauf- und Verkaufssignalen als Punkte.
 - `.github/workflows/update.yml` läuft werktags um 22:15 UTC, testet, rechnet und veröffentlicht.
 
 Lokal ausprobieren:

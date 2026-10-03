@@ -84,12 +84,9 @@ def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
 
     ndx, spx = d["ndx"].dropna(), d["spx"].dropna()
     buy = sig["buy"]
-    pos = ind.hold_state(ndx, buy, buy_overrides=config.BUY_BELOW_EXIT)
-    pos_spx = ind.hold_state(spx, buy, buy_overrides=config.BUY_BELOW_EXIT)
-    other = ind.hold_state(ndx, buy, buy_overrides=not config.BUY_BELOW_EXIT)
+    pos = ind.greed_exit(sig)
     trend = ind.hold_state(ndx)
-    stop10 = ind.hold_state(ndx, buy, stop=10)  # Stopp-Varianten: Kaufsignal auch unter der Verkaufsmarke
-    stop20 = ind.hold_state(ndx, buy, stop=20)
+    line = ind.hold_state(ndx, buy)
     always = pd.Series(True, index=ndx.index)
     never = pd.Series(False, index=ndx.index)
     # Investiert, solange die Seite "Halten" zeigt; raus am Tag des Verkaufssignals
@@ -99,22 +96,22 @@ def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
         "Nasdaq 100 3x halten": (ndx, 3, always, never),
         "Nasdaq 100 2x, Regeln": (ndx, 2, *follow(pos)),
         "Nasdaq 100 3x, Regeln": (ndx, 3, *follow(pos)),
-        "Nasdaq 100 3x, nur Kaufsignal ohne Wiedereinstieg": (ndx, 3, buy, pos["sell"]),
+        "Nasdaq 100 3x, Kaufsignal, Verkauf unter der 200-Tage-Linie (bisher)": (ndx, 3, *follow(line)),
         "Nasdaq 100 3x, nur 200-Tage-Linie (ohne Kaufsignal)": (ndx, 3, *follow(trend)),
-        ("Nasdaq 100 3x, Kaufsignal nur über der Verkaufsmarke" if config.BUY_BELOW_EXIT
-         else "Nasdaq 100 3x, Kaufsignal auch unter der Verkaufsmarke"): (ndx, 3, *follow(other)),
-        "Nasdaq 100 3x, Regeln, Stopp 10 % unter Kaufkurs": (ndx, 3, *follow(stop10)),
-        "Nasdaq 100 3x, Regeln, Stopp 20 % unter Kaufkurs": (ndx, 3, *follow(stop20)),
-        "S&P 500 3x, Regeln": (spx, 3, *follow(pos_spx)),
-        "Nasdaq 100 5x täglich, Regeln": (ndx, 5, *follow(pos)),
+        "S&P 500 3x, Regeln": (spx, 3, *follow(pos)),
         "Nasdaq 100 5x fest, Regeln": (ndx, 5, *follow(pos), "fest"),
     }
+    for key, name in (("world", "MSCI World"), ("acwi", "MSCI ACWI")):
+        s = d.get(key)
+        if s is not None and not s.dropna().empty:
+            plan[f"{name} halten (ohne Hebel)"] = (s.dropna(), 1, always, never)
+            plan[f"{name} 3x, Regeln"] = (s.dropna(), 3, *follow(pos))
     return {name: simulate(*args[:4], start, *args[4:]) for name, args in plan.items()}
 
 
-def report(results: dict) -> list:
+def report(results: dict, title: str = "Strategie: Kauf beim Kaufsignal, Verkauf beim Verkaufssignal") -> list:
     lines = [
-        "## Strategie: Kauf beim Kaufsignal, Verkauf beim Verkaufssignal",
+        f"## {title}",
         "",
         "| Strategie | Endwert je 1 € | Rendite p.a. | Max. Rückgang | Zeit investiert | Trades | Gewinn-Trades | Schnitt je Trade | Haltedauer Median (Tage) | Liquidiert |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",

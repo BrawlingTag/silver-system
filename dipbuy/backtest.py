@@ -104,7 +104,7 @@ def sensitivity(d: dict, years: float) -> list:
     for ath in ATH_PCTS:
         for vix in VIX_MINS:
             sig = ind.signals(d["spx"], d["vix"], d["fear_greed"], ath_pct=ath, vix_min=vix)
-            pos = ind.hold_state(ndx, sig["buy"], buy_overrides=config.BUY_BELOW_EXIT)
+            pos = ind.greed_exit(sig)
             s = summarize(signal_rows(ndx, sig), years)
             sim = strategy.simulate(ndx, 3, ~pos["out"], pos["sell"], EVAL_FROM)
             rows.append({"ath_pct": ath, "vix_min": vix, **s, "cagr": sim["cagr"], "max_dd": sim["max_dd"]})
@@ -152,10 +152,8 @@ def report(result: dict) -> str:
         f"CNN Fear & Greed unter {config.FG_MAX:g} (alle in den letzten {config.SETUP_WINDOW} Tagen), "
         f"dann RSI über dem Schnitt der letzten {config.RSI_MA} Tage. "
         "CNN-Werte gibt es nur für die letzten Jahre, davor zählt nur S&P und VIX. "
-        f"Verkauf: Nasdaq 100 mehr als {config.EXIT_BELOW:g} % unter der 200-Tage-Linie. "
-        "Wiedereinstieg: beim nächsten Kaufsignal oder wieder über der 200-Tage-Linie. "
-        + ("Kaufsignale zählen auch unter der Verkaufsmarke." if config.BUY_BELOW_EXIT
-           else "Kaufsignale zählen nur, solange der Nasdaq nicht unter der Verkaufsmarke liegt."),
+        f"Verkauf: {config.SELL_DELAY} Handelstage, nachdem CNN Fear & Greed über {config.SELL_FG:g} gestiegen ist; "
+        "danach draußen bis zum nächsten Kaufsignal. Ohne CNN-Werte (vor Mitte 2024) gibt es keinen Verkauf.",
         "",
         "## Kaufsignale",
         "",
@@ -180,7 +178,13 @@ def report(result: dict) -> str:
         lines += ["", f"Seit {c['since']} (CNN-Werte vorhanden): mit CNN-Bedingung {len(c['with'])} Signale "
                       f"({', '.join(c['with']) or 'keine'}), ohne {len(c['without'])} ({', '.join(c['without']) or 'keine'})."]
     lines.append("")
-    lines += strategy.report(result["strategies"])
+    lines += strategy.report(result["strategies"], f"Strategie {result['from']} bis {result['to']} "
+                             "(vor Mitte 2024 ohne CNN-Werte, also ohne Verkauf)")
+    c = result.get("cnn_period")
+    if c:
+        lines += [f"CNN über {config.SELL_FG:g} seit {c['since']}: "
+                  f"{', '.join(c['greed']) or 'nie'}. Verkaufssignale: {', '.join(c['sells']) or 'keine'}.", ""]
+        lines += strategy.report(c["strategies"], f"Strategie seit {c['since']} (nur hier gibt es CNN-Werte)")
     lines += [
         "## Andere Schwellen (Nasdaq 3x, Regeln)",
         "",
@@ -217,6 +221,23 @@ def run(src) -> dict:
         "baseline": baseline(ndx),
         "strategies": {k: {kk: vv for kk, vv in v.items() if kk != "equity"} for k, v in strat.items()},
         "sensitivity": sensitivity(d, years),
+        "cnn_period": cnn_period(d, sig),
+    }
+
+
+def cnn_period(d: dict, sig: pd.DataFrame) -> dict:
+    """Strategie nur für den Zeitraum, in dem es CNN-Werte (und damit Verkaufssignale) gibt."""
+    fg = d["fear_greed"]
+    if fg is None or fg.dropna().empty:
+        return {}
+    since = fg.dropna().index[0]
+    pos = ind.greed_exit(sig).loc[since:]
+    strat = strategy.strategies(d, sig, since)
+    return {
+        "since": since.strftime("%Y-%m-%d"),
+        "greed": [x.strftime("%Y-%m-%d") for x in pos.index[pos["greed_start"]]],
+        "sells": [x.strftime("%Y-%m-%d") for x in pos.index[pos["sell"]]],
+        "strategies": {k: {kk: vv for kk, vv in v.items() if kk != "equity"} for k, v in strat.items()},
     }
 
 
