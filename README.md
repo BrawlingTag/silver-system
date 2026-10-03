@@ -18,6 +18,8 @@ Gekauft wird, sobald dann der RSI (14 Tage) des S&P 500 über dem Schnitt der le
 
 **Verkaufen** 2 Handelstage, nachdem CNN Fear & Greed über 85 gestiegen ist (extreme Gier). Danach draußen bis zum nächsten Kaufsignal.
 
+Im Backtest 2007 bis 2026 gab es kein einziges Verkaufssignal: CNN-Werte gibt es erst ab Juli 2024, und seitdem lag CNN nie über 85. Nasdaq 100 mit 3x Hebel entspricht damit dem Dauerhalten: aus 1 € wurden 138 €, der größte Verlust war −95 % (2008). Die Kaufsignale allein waren nicht besser als ein beliebiger Tag: im Schnitt +8,7 % nach 3 Monaten mit 3x, gegenüber +11,0 % an irgendeinem Tag.
+
 CNN Fear & Greed gibt es erst ab Mitte 2024; im Backtest zählt davor beim Kauf nur S&P 500 und VIX, und es gibt keine Verkaufssignale. Die Watchlist bewertet 40 große Growth-Werte aus dem Nasdaq 100 nach Rücksetzer, RSI, Kursziel-Abstand, Analysten-Rating und Änderung der Gewinnschätzung. Alle Werte stehen in `dipbuy/config.py`.
 
 ## Aufbau
