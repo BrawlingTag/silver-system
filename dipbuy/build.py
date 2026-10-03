@@ -1,4 +1,4 @@
-"""Holt alle Daten, rechnet die Scores und schreibt site/data.json.
+"""Holt die Daten, prüft die Kauf- und Verkaufsregeln und schreibt site/data.json.
 
 Aufruf: python -m dipbuy.build [ausgabedatei]
 """
@@ -17,22 +17,6 @@ from . import indicators as ind
 
 log = logging.getLogger("dipbuy")
 
-PART_LABELS = {
-    "angst.fear_greed": ("CNN Fear & Greed", "fear_greed", "{:.0f}"),
-    "angst.vix": ("VIX", "vix", "{:.1f}"),
-    "angst.vix_term": ("VIX / VIX3M (über 1 = Panik)", "vix_term", "{:.2f}"),
-    "angst.rsi": ("RSI S&P 500 / Nasdaq 100 (unter 30 = überverkauft)", "rsi", "{}"),
-    "angst.dd_spx": ("S&P 500 unter Hoch", "dd_spx", "-{:.1f} %"),
-    "angst.dd_ndx": ("Nasdaq 100 unter Hoch", "dd_ndx", "-{:.1f} %"),
-    "angst.dd_world": ("MSCI World unter Hoch", "dd_world", "-{:.1f} %"),
-    "angst.breadth": ("S&P-500-Aktien über 200-Tage-Linie", "breadth", "{:.0f} %"),
-    "wende.vix_falling": ("VIX kommt vom 10-Tage-Hoch zurück", None, None),
-    "wende.bounce": ("Index erholt sich vom 5-Tage-Tief", None, None),
-    "makro.hy_level": ("High-Yield-Spread", "hy_spread", "{:.2f} %"),
-    "makro.hy_trend": ("High-Yield-Spread, Änderung 20 Tage", "hy_change", "{:+.2f} Pp."),
-    "makro.sahm": ("Sahm-Regel (Rezession ab 0,5)", "sahm", "{:.2f}"),
-}
-
 
 def clean(x):
     """NaN und Unendlich als null ausgeben, damit data.json gültiges JSON bleibt."""
@@ -46,7 +30,7 @@ def clean(x):
 
 
 def gather_market(src) -> dict:
-    tickers = list(config.INDEXES) + [config.VIX, config.VIX3M]
+    tickers = list(config.INDEXES) + [config.VIX]
     px = src.closes(tickers, start=config.HISTORY_START)
     spx = px["^GSPC"].dropna()
     idx = spx.index
@@ -55,84 +39,62 @@ def gather_market(src) -> dict:
         s = px[t].dropna() if t in px else None
         return s.reindex(idx).ffill() if s is not None and len(s) else None
 
-    def aligned(s):
-        if s is None:
-            return None
-        s = s[~s.index.duplicated(keep="last")].sort_index()
-        return s.reindex(s.index.union(idx)).ffill().reindex(idx)
-
+    fg = src.fear_greed(days=800)
     return {
         "spx": spx,
         "ndx": col("^NDX"),
         "world": col("URTH"),
         "vix": col(config.VIX),
-        "vix3m": col(config.VIX3M),
-        "fear_greed": aligned(src.fear_greed(days=8000)),
-        "breadth": aligned(src.breadth(start=config.HISTORY_START)),
-        "hy_spread": aligned(src.fred("BAMLH0A0HYM2", days=9000)),
-        "baa_spread": aligned(src.fred("BAA10Y", days=9000)),
-        "sahm": aligned(src.fred("SAHMREALTIME", days=9000)),
+        "fear_greed": fg.sort_index() if fg is not None else None,
     }
 
 
-def raw_values(d: dict) -> dict:
-    """Rohwerte am letzten Tag, für die Anzeige neben den Teilscores."""
-    last = lambda s: None if s is None or s.dropna().empty else float(s.dropna().iloc[-1])  # noqa: E731
-    vals = {
-        "fear_greed": last(d["fear_greed"]),
-        "vix": last(d["vix"]),
-        "vix_term": last(d["vix"] / d["vix3m"]) if d["vix3m"] is not None else None,
-        "rsi": f"{last(ind.rsi(d['spx'])):.0f} / {last(ind.rsi(d['ndx'])):.0f}",
-        "dd_spx": last(ind.drawdown(d["spx"])),
-        "dd_ndx": last(ind.drawdown(d["ndx"])),
-        "dd_world": last(ind.drawdown(d["world"])) if d["world"] is not None else None,
-        "breadth": last(d["breadth"]),
-        "hy_spread": last(d["hy_spread"]),
-        "hy_change": last(d["hy_spread"] - d["hy_spread"].shift(20)) if d["hy_spread"] is not None else None,
-        "sahm": last(d["sahm"]),
-    }
-    return vals
+def last_value(s):
+    return None if s is None or s.dropna().empty else round(float(s.dropna().iloc[-1]), 1)
 
 
-def summary_text(row, dip: bool) -> str:
-    angst, wende, makro = row["angst"], row["wende"], row["makro"]
-    if row["veto"]:
-        return "Rezessionssignal und steigende Kreditspreads: Vorsicht, Score ist auf Gelb gedeckelt."
-    if angst < 30:
-        a = "Kaum Angst im Markt"
-    elif angst < 60:
-        a = "Erhöhte Angst"
-    else:
-        a = "Hohe Angst, Ausverkaufsstimmung"
-    if not dip:
-        w = "kein nennenswerter Rücksetzer"
-    elif wende < 35:
-        w = "noch keine Stabilisierung"
-    else:
-        w = "erste Stabilisierung"
-    m = "" if makro is None or math.isnan(makro) or makro >= 50 else ", Makro-Lage angespannt"
-    t = "" if row["trend_ok"] else " S&P 500 unter der 200-Tage-Linie."
-    return f"{a}, {w}{m}.{t}"
+def mood(fear_greed) -> str:
+    """Ein Satz zur Stimmung, nur als Info neben den Regeln."""
+    if fear_greed is None:
+        return ""
+    if fear_greed < 25:
+        return "Extreme Angst"
+    if fear_greed < 45:
+        return "Angst"
+    if fear_greed <= 55:
+        return "Neutral"
+    if fear_greed <= 75:
+        return "Gier"
+    return "Extreme Gier"
+
+
+def rule_rows(row) -> list:
+    pct = lambda v: f"{v:+.1f} %".replace(".", ",")  # noqa: E731
+    return [
+        {
+            "label": f"Rücksetzer: Nasdaq 100 mindestens {config.DIP_PCT:g} % unter dem Hoch",
+            "value": f"heute {pct(-row['drawdown'])}, tiefster Stand der letzten {config.DIP_WINDOW} Tage {pct(-row['drawdown_max'])}",
+            "ok": bool(row["dip"]),
+        },
+        {
+            "label": "Aufwärtstrend: Nasdaq 100 über der 200-Tage-Linie",
+            "value": f"{pct(row['distance'])} zur Linie",
+            "ok": bool(row["trend"]),
+        },
+        {
+            "label": f"Dip dreht: RSI kreuzt über seinen {config.RSI_MA}-Tage-Schnitt",
+            "value": f"RSI {row['rsi']:.0f}, Schnitt {row['rsi_ma']:.0f}"
+                     + (f", gekreuzt in den letzten {config.SIGNAL_HOLD} Tagen" if row["turn_recent"] else ""),
+            "ok": bool(row["turn_recent"]),
+        },
+    ]
 
 
 def build(src, out_path: Path) -> dict:
     d = gather_market(src)
-    sc = ind.market_score(d)
-    last = sc.dropna(subset=["score"]).iloc[-1]
+    rl = ind.rules(d["ndx"])
+    last = rl.iloc[-1]
     asof = last.name
-    dip = bool(ind.dip_present(d["spx"]).loc[asof])
-    raw = raw_values(d)
-
-    parts = {"angst": [], "wende": [], "makro": []}
-    for key, (label, raw_key, fmt) in PART_LABELS.items():
-        if key not in sc.columns or pd.isna(last.get(key)):
-            continue
-        rv = raw.get(raw_key) if raw_key else None
-        parts[key.split(".")[0]].append({
-            "label": label,
-            "score": round(float(last[key])),
-            "value": fmt.format(rv) if (fmt and rv is not None) else None,
-        })
 
     exits = []
     for t, name in config.INDEXES.items():
@@ -140,16 +102,13 @@ def build(src, out_path: Path) -> dict:
         if s is not None:
             exits.append({"name": name, **ind.exit_signal(s)})
 
-    hist = sc.loc[config.HISTORY_FROM:].dropna(subset=["score"])
-    fg = d["fear_greed"]
+    hist = rl.loc[config.HISTORY_FROM:]
     history = {
         "dates": [x.strftime("%Y-%m-%d") for x in hist.index],
-        "score": [round(float(v), 1) for v in hist["score"]],
-        "spx": [clean(round(float(v), 2)) for v in d["spx"].reindex(hist.index)],
-        # Tage mit neuem Kaufsignal (erster Tag von "Dip-Ende: kaufen")
-        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hist["trigger"].astype(bool)]],
-        # Ab hier fließt CNN Fear & Greed ein (ältere Daten gibt CNN nicht heraus)
-        "fear_greed_from": fg.dropna().index[0].strftime("%Y-%m-%d") if fg is not None and fg.notna().any() else None,
+        "ndx": [clean(round(float(v), 1)) for v in hist["close"]],
+        "sma200": [clean(round(float(v), 1)) for v in hist["sma200"]],
+        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hist["buy"]]],
+        "sells": [x.strftime("%Y-%m-%d") for x in hist.index[hist["sell"]]],
     }
 
     stocks = []
@@ -166,21 +125,14 @@ def build(src, out_path: Path) -> dict:
         stocks.append({"ticker": t, "name": info.get("name", t), **row})
     stocks.sort(key=lambda s: -(s["score"] or -1))
 
-    score = float(last["score"])
+    fg, vix = last_value(d["fear_greed"]), last_value(d["vix"])
     data = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "asof": asof.strftime("%Y-%m-%d"),
-        "score": round(score, 1),
-        "signal": ind.signal(score, bool(last["trend_ok"]), bool(last["setup"]), bool(last["triggered"])),
-        "trend_ok": bool(last["trend_ok"]),
-        "summary": summary_text(last, dip),
-        "dip": dip,
-        "dip_min": config.DIP_MIN_DRAWDOWN,
-        "veto": bool(last["veto"]),
-        "sub": {k: clean(round(float(last[k]), 1)) for k in ("angst", "wende", "makro")},
-        "weights": config.WEIGHTS,
-        "thresholds": {"red_below": config.RED_BELOW, "green_from": config.GREEN_FROM},
-        "parts": parts,
+        "signal": ind.status(last),
+        "rules": rule_rows(last),
+        "info": {"fear_greed": fg, "mood": mood(fg), "vix": vix},
+        "exit_below": config.EXIT_BELOW,
         "exits": exits,
         "history": history,
         "stocks": stocks,
@@ -196,8 +148,8 @@ def main():
 
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("site/data.json")
     data = build(fetch, out)
-    log.info("Score %.1f (%s) am %s, %d Aktien -> %s",
-             data["score"], data["signal"]["label"], data["asof"], len(data["stocks"]), out)
+    log.info("%s (%s) am %s, %d Aktien -> %s",
+             data["signal"]["label"], data["signal"]["color"], data["asof"], len(data["stocks"]), out)
 
 
 if __name__ == "__main__":

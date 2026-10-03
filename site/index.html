@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%227%22 fill=%22%232f9e5b%22/%3E%3C/svg%3E">
-<title>Dip-Buy-Score</title>
+<title>Dip-Buy</title>
 <style>
   :root {
     --bg: #f7f7f5; --card: #ffffff; --text: #1b1b1b; --muted: #6b6b6b; --line: #e4e4e0;
@@ -27,26 +27,14 @@
   .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
   .muted { color: var(--muted); font-size: 13px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
-  .hero { display: flex; gap: 20px; align-items: center; }
-  .ring { width: 116px; height: 116px; flex: none; position: relative; }
-  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-  .ring .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hero .label { font-size: 30px; }
+  .rule { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .rule:last-child { border-bottom: 0; }
+  .check { flex: none; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 14px; }
+  .rule b { font-weight: 600; display: block; font-size: 14px; }
+  .info { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; margin-top: 12px; }
   .label { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
-  .lever { font-size: 14px; margin: 8px 0 0; }
   .pill { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; color: #fff; }
-  .bar-row { margin: 10px 0; }
-  .bar-head { display: flex; justify-content: space-between; font-size: 14px; }
-  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin-top: 5px; }
-  .bar > div { height: 100%; border-radius: 99px; }
-  details { margin-top: 4px; }
-  summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; }
-  summary::-webkit-details-marker { display: none; }
-  summary::before { content: "▸ "; }
-  details[open] summary::before { content: "▾ "; }
-  .parts { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
-  .parts td { padding: 4px 0; border-bottom: 1px solid var(--line); }
-  .parts td:nth-child(2) { text-align: right; color: var(--muted); padding-right: 12px; white-space: nowrap; }
-  .parts td:last-child { text-align: right; width: 38px; font-variant-numeric: tabular-nums; font-weight: 600; }
   .exit { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
   .exit:last-child { border-bottom: 0; }
   .chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
@@ -78,32 +66,25 @@
 <body>
 <main>
   <div class="top">
-    <h1>Dip-Buy-Score</h1>
+    <h1>Dip-Buy</h1>
     <span class="muted" id="asof"></span>
   </div>
 
   <div class="card" id="err">Daten konnten nicht geladen werden.</div>
 
   <section class="card hero">
-    <div class="ring">
-      <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--line)" stroke-width="12"/>
-        <circle id="arc" cx="60" cy="60" r="52" fill="none" stroke-width="12" stroke-linecap="round" stroke-dasharray="0 999"/></svg>
-      <div class="num" id="score">–</div>
-    </div>
-    <div>
-      <p class="label" id="label"></p>
-      <div class="muted" id="summary"></div>
-      <p class="lever">Hebel: <b id="lever"></b></p>
-    </div>
+    <p class="label" id="label"></p>
+    <div class="muted" id="text"></div>
+    <div class="info" id="info"></div>
   </section>
 
   <section class="card">
-    <h2>Teilscores</h2>
-    <div id="subs"></div>
+    <h2>Kaufsignal: alle drei Regeln erfüllt</h2>
+    <div id="rules"></div>
   </section>
 
   <section class="card">
-    <h2>Ausstiegssignal: Hebel nur über der 200-Tage-Linie</h2>
+    <h2 id="exit-title">Verkaufssignal</h2>
     <div id="exits"></div>
   </section>
 
@@ -111,7 +92,7 @@
     <div class="chart-head"><h2>Verlauf</h2><button class="btn" id="zoom" type="button">Vergrößern</button></div>
     <div class="ranges" id="ranges"></div>
     <div id="chart"></div>
-    <div class="legend"><span><i style="background:var(--accent)"></i>Score</span><span><i style="background:var(--muted)"></i>S&amp;P 500</span><span><i style="background:var(--green);height:8px;width:8px;border-radius:50%"></i>Kaufsignal</span></div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Nasdaq 100</span><span><i style="background:var(--muted)"></i>200-Tage-Linie</span><span><i style="background:var(--green);height:8px;width:8px;border-radius:50%"></i>Kauf</span><span><i style="background:var(--red);height:8px;width:8px;border-radius:50%"></i>Verkauf</span></div>
     <p class="muted" id="chartnote"></p>
   </section>
 
@@ -123,7 +104,7 @@
   </section>
 
   <footer>
-    Aktualisiert jeden US-Handelstag nach Börsenschluss. Quellen: Yahoo Finance, CNN, FRED, Wikipedia.
+    Aktualisiert jeden US-Handelstag nach Börsenschluss. Quellen: Yahoo Finance, CNN.
     Keine Anlageberatung. Gehebelte Produkte können in Seitwärts- und Abwärtsphasen stark an Wert verlieren.
     <br><span id="generated"></span>
   </footer>
@@ -132,7 +113,7 @@
 <script>
 const COLORS = { red: "var(--red)", yellow: "var(--yellow)", green: "var(--green)", grey: "var(--grey)" };
 const fmt = (v, d = 1, suf = "") => v == null ? "–" : v.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d }) + suf;
-let T;
+const T = { red_below: 35, green_from: 50 };  // Ampel für den Aktien-Score
 
 function colorFor(score) {
   if (score == null) return COLORS.grey;
@@ -149,51 +130,33 @@ function el(tag, attrs = {}, html = "") {
 }
 
 function renderHero(d) {
-  const c = COLORS[d.signal.color];
-  document.getElementById("score").textContent = Math.round(d.score);
-  const arc = document.getElementById("arc");
-  const len = 2 * Math.PI * 52;
-  arc.setAttribute("stroke", c);
-  arc.setAttribute("stroke-dasharray", `${len * d.score / 100} ${len}`);
   const label = document.getElementById("label");
   label.textContent = d.signal.label;
-  label.style.color = c;
-  document.getElementById("summary").textContent = d.summary;
-  document.getElementById("lever").textContent = d.signal.lever;
+  label.style.color = COLORS[d.signal.color];
+  document.getElementById("text").textContent = d.signal.text;
+  const i = d.info;
+  document.getElementById("info").innerHTML =
+    (i.fear_greed != null ? `<span>Fear &amp; Greed <b>${fmt(i.fear_greed, 0)}</b> <span class="muted">${i.mood}</span></span>` : "") +
+    (i.vix != null ? `<span>VIX <b>${fmt(i.vix, 1)}</b></span>` : "");
   const asof = new Date(d.asof + "T12:00:00");
   document.getElementById("asof").textContent = "Stand " + asof.toLocaleDateString("de-DE", { day: "numeric", month: "short", year: "numeric" });
   document.getElementById("generated").textContent = "Berechnet " + new Date(d.generated).toLocaleString("de-DE");
 }
 
-function renderSubs(d) {
-  const names = { angst: "Angst im Markt", wende: "Stabilisierung", makro: "Makro (100 = keine Krise)" };
-  const box = document.getElementById("subs");
-  for (const k of ["angst", "wende", "makro"]) {
-    const v = d.sub[k];
-    const row = el("div", { class: "bar-row" });
-    row.innerHTML = `<div class="bar-head"><span>${names[k]} <span class="muted">· ${Math.round(d.weights[k] * 100)} %</span></span><b>${v == null ? "–" : Math.round(v)}</b></div>
-      <div class="bar"><div style="width:${v ?? 0}%;background:var(--accent)"></div></div>`;
-    const parts = d.parts[k] || [];
-    if (parts.length) {
-      const det = el("details");
-      det.appendChild(el("summary", {}, "Einzelwerte"));
-      const t = el("table", { class: "parts" });
-      t.innerHTML = parts.map(p => `<tr><td>${p.label}</td><td>${p.value ?? ""}</td><td>${p.score}</td></tr>`).join("");
-      det.appendChild(t);
-      row.appendChild(det);
-    }
-    if (k === "wende" && !d.dip) row.appendChild(el("div", { class: "muted" }, `Zählt erst nach einem Rücksetzer von mindestens ${d.dip_min} %.`));
-    box.appendChild(row);
-  }
+function renderRules(d) {
+  document.getElementById("rules").innerHTML = d.rules.map(r => `<div class="rule">
+      <span class="check" style="background:${r.ok ? "var(--green)" : "var(--grey)"}">${r.ok ? "✓" : "–"}</span>
+      <span><b>${r.label}</b><span class="muted">${r.value}</span></span></div>`).join("");
 }
 
 function renderExits(d) {
+  document.getElementById("exit-title").textContent = `Verkaufssignal: mehr als ${fmt(d.exit_below, 0)} % unter der 200-Tage-Linie`;
   const box = document.getElementById("exits");
   for (const e of d.exits) {
     if (e.hold == null) continue;
     const pill = e.hold
-      ? `<span class="pill" style="background:var(--green)">Hebel halten</span>`
-      : `<span class="pill" style="background:var(--red)">Hebel raus</span>`;
+      ? `<span class="pill" style="background:var(--green)">Halten</span>`
+      : `<span class="pill" style="background:var(--red)">Verkaufen</span>`;
     const dist = `<span class="${e.distance >= 0 ? "pos" : "neg"}">${e.distance >= 0 ? "+" : ""}${fmt(e.distance, 1, " %")}</span>`;
     box.appendChild(el("div", { class: "exit" },
       `<span>${e.name}<br><span class="muted">${dist} zur Linie · seit ${e.days} Tagen</span></span>${pill}`));
@@ -224,7 +187,7 @@ function sliceHistory(h) {
     const cut = end.toISOString().slice(0, 10);
     while (i0 < h.dates.length - 1 && h.dates[i0] < cut) i0++;
   }
-  return { dates: h.dates.slice(i0), score: h.score.slice(i0), spx: h.spx.slice(i0) };
+  return { dates: h.dates.slice(i0), ndx: h.ndx.slice(i0), sma: h.sma200.slice(i0) };
 }
 
 function timeTicks(dates) {
@@ -248,57 +211,53 @@ function timeTicks(dates) {
 
 function renderChart(d) {
   const box = document.getElementById("chart");
-  const h = sliceHistory(d.history), n = h.score.length;
+  const h = sliceHistory(d.history), n = h.ndx.length;
   if (n < 2) return;
   const W = Math.max(280, box.clientWidth);
   // Vergrößert: so hoch, wie unter Kopf und Zeitraum-Knöpfen noch Platz ist (Legende darf darunter liegen)
-  const H = full ? Math.max(200, window.innerHeight - box.offsetTop - 24) : 260;
-  const top = 8, bot = H - 20, mid = top + (bot - top) * .45, gap = 14;
+  const H = full ? Math.max(200, window.innerHeight - box.offsetTop - 24) : 240;
+  const top = 8, bot = H - 20;
   const x = i => (i / (n - 1)) * W;
-  const spx = h.spx.filter(v => v != null && v > 0);
-  const lo = Math.log(Math.min(...spx)), hi = Math.log(Math.max(...spx));
-  const yp = v => top + (1 - (Math.log(v) - lo) / (hi - lo || 1)) * (mid - top);
-  const ys = v => mid + gap + (1 - v / 100) * (bot - mid - gap);
-  const path = (arr, y) => arr.map((v, i) => v == null ? "" : `${i && arr[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  const band = (from, to, c) => `<rect x="0" y="${ys(to)}" width="${W}" height="${ys(from) - ys(to)}" fill="${c}" opacity=".12"/>`;
+  const vals = [...h.ndx, ...h.sma].filter(v => v != null && v > 0);
+  const lo = Math.log(Math.min(...vals)), hi = Math.log(Math.max(...vals));
+  const y = v => top + (1 - (Math.log(v) - lo) / (hi - lo || 1)) * (bot - top);
+  const path = arr => arr.map((v, i) => v == null ? "" : `${i && arr[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
   const tickSvg = timeTicks(h.dates).map(([i, label]) =>
     `<line x1="${x(i)}" x2="${x(i)}" y1="${top}" y2="${bot}" stroke="var(--line)"/>
      <text x="${x(i) + 3}" y="${H - 5}" font-size="11" fill="var(--muted)">${label}</text>`).join("");
-  const buys = new Set(d.history.buys || []);
-  const dots = h.dates.map((s, i) => buys.has(s)
-    ? `<circle cx="${x(i).toFixed(1)}" cy="${ys(h.score[i]).toFixed(1)}" r="${full ? 4.5 : 3.5}" fill="var(--green)" stroke="var(--card)" stroke-width="1.5"/>` : "").join("");
+  const buys = new Set(d.history.buys || []), sells = new Set(d.history.sells || []);
+  const r = full ? 5 : 4;
+  const dots = h.dates.map((s, i) => {
+    const c = buys.has(s) ? "var(--green)" : sells.has(s) ? "var(--red)" : null;
+    return c ? `<circle cx="${x(i).toFixed(1)}" cy="${y(h.ndx[i]).toFixed(1)}" r="${r}" fill="${c}" stroke="var(--card)" stroke-width="1.5"/>` : "";
+  }).join("");
   box.innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Score-Verlauf und S&P 500">
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Nasdaq 100 mit 200-Tage-Linie und Signalen">
       ${tickSvg}
-      ${band(0, T.red_below, "var(--red)")}${band(T.red_below, T.green_from, "var(--yellow)")}${band(T.green_from, 100, "var(--green)")}
-      <path d="${path(h.spx, yp)}" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
-      <path d="${path(h.score, ys)}" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+      <path d="${path(h.sma)}" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="4 3"/>
+      <path d="${path(h.ndx)}" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
       ${dots}
-      <text x="4" y="${ys(100) + 12}" font-size="11" fill="var(--muted)">Score</text>
-      <text x="4" y="${top + 11}" font-size="11" fill="var(--muted)">S&amp;P 500</text>
       <line id="cursor" y1="${top}" y2="${bot}" stroke="var(--text)" stroke-width="1" opacity="0"/>
     </svg><div class="tip" id="tip"></div>`;
 
   const svg = box.querySelector("svg"), tip = box.querySelector("#tip"), cur = box.querySelector("#cursor");
   const show = ev => {
-    const r = svg.getBoundingClientRect();
-    const i = Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * (n - 1));
-    const px = x(i) * r.width / W;
+    const rc = svg.getBoundingClientRect();
+    const i = Math.round(Math.min(1, Math.max(0, (ev.clientX - rc.left) / rc.width)) * (n - 1));
+    const px = x(i) * rc.width / W;
     cur.setAttribute("x1", x(i)); cur.setAttribute("x2", x(i)); cur.setAttribute("opacity", ".35");
     const [yy, mm, dd] = h.dates[i].split("-");
-    tip.innerHTML = `${dd}.${mm}.${yy} · Score <b>${fmt(h.score[i], 0)}</b> · S&amp;P ${fmt(h.spx[i], 0)}${buys.has(h.dates[i]) ? " · <b style=\"color:var(--green)\">Kaufsignal</b>" : ""}`;
+    const dist = h.sma[i] ? (h.ndx[i] / h.sma[i] - 1) * 100 : null;
+    const mark = buys.has(h.dates[i]) ? ' · <b style="color:var(--green)">Kauf</b>' : sells.has(h.dates[i]) ? ' · <b style="color:var(--red)">Verkauf</b>' : "";
+    tip.innerHTML = `${dd}.${mm}.${yy} · Nasdaq <b>${fmt(h.ndx[i], 0)}</b>${dist == null ? "" : ` · ${dist >= 0 ? "+" : ""}${fmt(dist, 1, " %")} zur Linie`}${mark}`;
     tip.style.display = "block";
-    tip.style.left = Math.min(Math.max(0, px - tip.offsetWidth / 2), r.width - tip.offsetWidth) + "px";
+    tip.style.left = Math.min(Math.max(0, px - tip.offsetWidth / 2), rc.width - tip.offsetWidth) + "px";
   };
   const hide = () => { tip.style.display = "none"; cur.setAttribute("opacity", "0"); };
   svg.addEventListener("pointermove", show);
   svg.addEventListener("pointerdown", show);
   svg.addEventListener("pointerleave", hide);
-
-  const fg = d.history.fear_greed_from;
-  document.getElementById("chartnote").textContent = fg && h.dates[0] < fg
-    ? `S&P 500 logarithmisch. Vor dem ${fg.split("-").reverse().join(".")} ohne CNN Fear & Greed berechnet, ältere Werte gibt CNN nicht heraus.`
-    : "S&P 500 logarithmisch.";
+  document.getElementById("chartnote").textContent = "Logarithmische Skala.";
 }
 
 function setFull(on, d) {
@@ -351,8 +310,7 @@ function renderStocks() {
 fetch("data.json", { cache: "no-store" })
   .then(r => r.json())
   .then(d => {
-    T = d.thresholds;
-    renderHero(d); renderSubs(d); renderExits(d); renderRanges(d); renderChart(d);
+    renderHero(d); renderRules(d); renderExits(d); renderRanges(d); renderChart(d);
     document.getElementById("zoom").onclick = () => setFull(!full, d);
     document.addEventListener("keydown", e => { if (e.key === "Escape" && full) setFull(false, d); });
     STOCKS = d.stocks; renderStocks();

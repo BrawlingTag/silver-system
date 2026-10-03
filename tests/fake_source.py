@@ -24,29 +24,18 @@ class FakeSource:
         stress = (1 - self.base / self.base.cummax()).clip(lower=0)
         self.stress = stress
         self.vix = 14 + stress * 160
-        self.vix3m = 17 + stress * 100
 
     def closes(self, tickers, period="3y", start=None):
         cols = {}
         for i, t in enumerate(tickers):
             if t == "^VIX":
                 cols[t] = self.vix
-            elif t == "^VIX3M":
-                cols[t] = self.vix3m
             else:
                 cols[t] = 100 * self.base ** (1 + 0.1 * (i % 5))
         return pd.DataFrame(cols)
 
     def fear_greed(self, days=800):
         return (60 - self.stress * 300).clip(5, 90)
-
-    def breadth(self, start=None):
-        return (70 - self.stress * 300).clip(5, 90)
-
-    def fred(self, series_id, days=1500):
-        if series_id == "SAHMREALTIME":
-            return pd.Series(0.2, index=self.idx)
-        return 3.5 + self.stress * 10
 
     def analyst_info(self, ticker):
         return {"name": ticker, "target": 400.0, "rating": 1.8, "analysts": 40, "revision": 2.0}

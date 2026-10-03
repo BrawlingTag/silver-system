@@ -1,5 +1,6 @@
 import json
 
+import numpy as np
 import pandas as pd
 
 from dipbuy import build, config, indicators as ind
@@ -12,35 +13,55 @@ def run(tmp_path, **kw):
     return json.loads(out.read_text())
 
 
-def test_calm_market_is_red(tmp_path):
-    data = run(tmp_path)
+def series(*legs, start=100.0):
+    """Kursverlauf aus Abschnitten (Tage, Rendite pro Tag in Prozent)."""
+    vals = [start]
+    for days, pct in legs:
+        for _ in range(days):
+            vals.append(vals[-1] * (1 + pct / 100))
+    return pd.Series(vals, index=pd.bdate_range("2020-01-01", periods=len(vals)), dtype=float)
+
+
+def test_calm_market_has_no_dip(tmp_path):
+    data = run(tmp_path, drift=0.0008)
+    assert data["signal"]["label"] == "Kein Dip"
+    assert [r["ok"] for r in data["rules"]] == [False, True, False] or not data["rules"][0]["ok"]
+
+
+def test_crash_below_200_day_line_says_sell(tmp_path):
+    data = run(tmp_path, crash_pct=0.3, crash_end=5)
+    assert data["signal"]["label"] == "Verkaufen"
     assert data["signal"]["color"] == "red"
-    assert data["sub"]["wende"] == 0
-    assert all(e["hold"] for e in data["exits"])
 
 
-def test_crash_below_200_day_line_is_only_yellow(tmp_path):
-    data = run(tmp_path, crash_pct=0.25, crash_end=0)
-    assert data["sub"]["angst"] > 80
-    assert not data["trend_ok"]
-    assert data["signal"]["label"] == "Dip im Abwärtstrend"
+def test_correction_in_uptrend_then_turn_gives_buy():
+    # 300 Tage Aufwärtstrend, 8 % Rücksetzer in 8 Tagen, dann zwei Tage nach oben
+    s = series((300, 0.15), (8, -1.04), (2, 1.0))
+    rl = ind.rules(s)
+    last = rl.iloc[-1]
+    assert last["dip"] and last["trend"] and last["buy_recent"]
+    assert ind.status(last)["label"] == "Kaufen"
 
 
-def test_small_correction_raises_score(tmp_path):
-    calm = run(tmp_path)["score"]
-    small = run(tmp_path, crash_pct=0.03, crash_len=10, crash_end=0)["score"]
-    six = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=0)
-    assert calm < small < six["score"]
-    # im intakten Aufwärtstrend wird aus der 6-%-Korrektur ein Kaufsignal
-    six = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=0, drift=0.0012)
-    assert six["trend_ok"]
-    assert six["signal"]["label"] == "Dip läuft", six["score"]
+def test_no_buy_without_dip():
+    # Nur 3 % Rücksetzer: RSI dreht zwar, aber das reicht nicht
+    s = series((300, 0.15), (6, -0.5), (2, 1.0))
+    rl = ind.rules(s)
+    assert not rl["dip"].iloc[-1] and not rl["buy"].any()
 
 
-def test_rsi_turn_after_correction_gives_buy(tmp_path):
-    data = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=2, recovery=0.01, drift=0.0012)
-    assert data["trend_ok"]
-    assert data["signal"]["label"] == "Dip-Ende: kaufen", (data["score"], data["signal"])
+def test_no_buy_below_200_day_line():
+    # Langer Abwärtstrend unter der Linie, dann kurzer Anstieg: Rücksetzer ja, Trend nein
+    s = series((300, 0.1), (120, -0.3), (2, 1.0))
+    rl = ind.rules(s)
+    assert rl["dip"].iloc[-1] and not rl["trend"].iloc[-1] and not rl["buy"].iloc[-1]
+
+
+def test_sell_only_3_percent_below_line():
+    s = series((300, 0.1))
+    sma = s.rolling(200).mean().iloc[-1]
+    assert ind.exit_signal(s.where(s.index != s.index[-1], sma * 0.98))["hold"] is True
+    assert ind.exit_signal(s.where(s.index != s.index[-1], sma * 0.96))["hold"] is False
 
 
 def test_rsi_cross_up():
@@ -50,39 +71,24 @@ def test_rsi_cross_up():
     assert list(cross[cross].index) == [idx[5]]
 
 
-def test_recovery_shows_stabilisation(tmp_path):
-    data = run(tmp_path, crash_pct=0.25, crash_end=8, recovery=0.08)
-    assert data["dip"]
-    assert data["sub"]["wende"] > 50
-
-
 def test_output_shape(tmp_path):
-    data = run(tmp_path, crash_pct=0.2, crash_end=5, recovery=0.03)
-    assert 0 <= data["score"] <= 100
-    assert len(data["history"]["dates"]) == len(data["history"]["score"]) > 300
+    data = run(tmp_path, crash_pct=0.08, crash_end=3)
+    assert {"signal", "rules", "info", "exits", "history", "stocks"} <= set(data)
+    assert len(data["rules"]) == 3 and all(isinstance(r["ok"], bool) for r in data["rules"])
+    assert len(data["exits"]) == 3
+    h = data["history"]
+    assert len(h["dates"]) == len(h["ndx"]) == len(h["sma200"]) > 500
+    assert set(h["buys"]) <= set(h["dates"]) and set(h["sells"]) <= set(h["dates"])
     assert len(data["stocks"]) == 40
-    assert {"angst", "wende", "makro"} == set(data["parts"])
+    assert data["info"]["fear_greed"] is not None
 
 
-def test_veto_caps_score(tmp_path):
-    src = FakeSource(crash_pct=0.3, crash_end=8, recovery=0.1)
-    hy = pd.Series(4.0, index=src.idx)
-    hy.iloc[-20:] = [4.0 + 0.1 * i for i in range(20)]
-    src.fred = lambda sid, **kw: pd.Series(0.7, index=src.idx) if sid == "SAHMREALTIME" else hy
-    out = tmp_path / "d.json"
-    data = build.build(src, out)
-    assert data["veto"]
-    assert data["score"] <= config.VETO_CAP
-
-
-def test_missing_sources_still_build(tmp_path):
+def test_missing_fear_greed_still_builds(tmp_path):
     src = FakeSource(crash_pct=0.2, crash_end=5)
     src.fear_greed = lambda **kw: None
-    src.breadth = lambda **kw: None
-    src.fred = lambda sid, **kw: None
     data = build.build(src, tmp_path / "d.json")
-    assert data["sub"]["makro"] is None
-    assert 0 <= data["score"] <= 100
+    assert data["info"]["fear_greed"] is None
+    assert data["signal"]["label"]
 
 
 def test_exit_signal_below_sma200():
@@ -97,11 +103,3 @@ def test_stock_score_prefers_dip_with_rising_estimates():
     down = pd.Series([100 + i * 0.3 for i in range(250)] + [175 - i * 1.5 for i in range(50)], index=idx)
     info = {"target": 200.0, "rating": 1.7, "revision": 3.0}
     assert ind.stock_score(down, info)["score"] > ind.stock_score(up, info)["score"]
-
-
-def test_history_has_buys_and_fear_greed_start(tmp_path):
-    data = build.build(FakeSource(), tmp_path / "d.json")
-    h = data["history"]
-    assert len(h["dates"]) == len(h["score"]) == len(h["spx"]) > 500
-    assert set(h["buys"]) <= set(h["dates"])
-    assert h["fear_greed_from"] == h["dates"][0]

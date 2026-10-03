@@ -78,49 +78,32 @@ def simulate(close: pd.Series, lever: int, entries: pd.Series, exits: pd.Series,
     }
 
 
-def strategies(d: dict, sc: pd.DataFrame, start) -> dict:
-    spx, ndx = d["spx"], d["ndx"]
-    idx = sc.index
-
-    def below(close, buffer=0.0):
-        sma = close.rolling(200).mean()
-        return (close < sma * (1 - buffer)).reindex(idx, fill_value=False)
-
+def strategies(d: dict, rl: pd.DataFrame, start) -> dict:
+    """Kauf beim Kaufsignal, Verkauf beim Verkaufssignal, verglichen mit Kaufen und Halten."""
+    ndx = d["ndx"].dropna()
+    idx = ndx.index
     always = pd.Series(True, index=idx)
     never = pd.Series(False, index=idx)
-    trigger = sc["trigger"].astype(bool)
-    instant = (sc["score"] >= config.GREEN_FROM) & sc["trend_ok"].astype(bool)
-    above_ndx = ~below(ndx)
-
-    def buy(entries, close, buffer=0.0):
-        # Nie kaufen, solange für denselben Index das Ausstiegssignal gilt
-        return entries & ~below(close, buffer)
-
+    buy, sell = rl["buy"], rl["below"]
+    # Variante: nach einem Verkauf auch wieder einsteigen, sobald der Index zurück über der Linie ist
+    back_above = rl["trend"] & ~rl["trend"].shift(1, fill_value=False)
     plan = {
         "Nasdaq 100 halten (ohne Hebel)": (ndx, 1, always, never),
         "Nasdaq 100 3x halten": (ndx, 3, always, never),
-        "Nasdaq 100 3x, nur über 200-Tage-Linie": (ndx, 3, above_ndx, below(ndx)),
-        "Nasdaq 100 3x, nur über 200-Tage-Linie, Ausstieg 3 % darunter": (ndx, 3, above_ndx, below(ndx, 0.03)),
-        "Nasdaq 100 3x, Dip-Signal + Ausstieg": (ndx, 3, buy(trigger, ndx), below(ndx)),
-        "Nasdaq 100 3x, Dip sofort + Ausstieg": (ndx, 3, buy(instant, ndx), below(ndx)),
-        "Nasdaq 100 3x, Dip-Signal + Ausstieg 3 % unter Linie": (ndx, 3, buy(trigger, ndx, 0.03), below(ndx, 0.03)),
-        "Nasdaq 100 2x, Dip-Signal + Ausstieg": (ndx, 2, buy(trigger, ndx), below(ndx)),
-        "Nasdaq 100 5x täglich, halten": (ndx, 5, always, never),
-        "Nasdaq 100 5x täglich, nur über 200-Tage-Linie, Ausstieg 3 % darunter": (ndx, 5, above_ndx, below(ndx, 0.03)),
-        "Nasdaq 100 5x täglich, Dip-Signal + Ausstieg": (ndx, 5, buy(trigger, ndx), below(ndx)),
-        "Nasdaq 100 5x fest, halten": (ndx, 5, always, never, "fest"),
-        "Nasdaq 100 5x fest, nur über 200-Tage-Linie, Ausstieg 3 % darunter": (ndx, 5, above_ndx, below(ndx, 0.03), "fest"),
-        "Nasdaq 100 5x fest, Dip-Signal + Ausstieg": (ndx, 5, buy(trigger, ndx), below(ndx), "fest"),
-        "S&P 500 halten (ohne Hebel)": (spx, 1, always, never),
-        "S&P 500 2x, nur über 200-Tage-Linie": (spx, 2, ~below(spx), below(spx)),
-        "S&P 500 2x, Dip-Signal + Ausstieg": (spx, 2, buy(trigger, spx), below(spx)),
+        "Nasdaq 100 2x, Regeln": (ndx, 2, buy, sell),
+        "Nasdaq 100 3x, Regeln": (ndx, 3, buy, sell),
+        "Nasdaq 100 3x, Regeln + Wiedereinstieg über der Linie": (ndx, 3, buy | back_above, sell),
+        "Nasdaq 100 3x, nur 200-Tage-Linie": (ndx, 3, rl["trend"], sell),
+        "Nasdaq 100 5x täglich, Regeln": (ndx, 5, buy, sell),
+        "Nasdaq 100 5x fest, Regeln": (ndx, 5, buy, sell, "fest"),
+        "Nasdaq 100 5x fest, Regeln + Wiedereinstieg über der Linie": (ndx, 5, buy | back_above, sell, "fest"),
     }
     return {name: simulate(*args[:4], start, *args[4:]) for name, args in plan.items()}
 
 
 def report(results: dict) -> list:
     lines = [
-        "## Strategie: Kauf bei Signal, Verkauf beim Ausstiegssignal",
+        "## Strategie: Kauf beim Kaufsignal, Verkauf beim Verkaufssignal",
         "",
         "| Strategie | Endwert je 1 € | Rendite p.a. | Max. Rückgang | Zeit investiert | Trades | Gewinn-Trades | Schnitt je Trade | Haltedauer Median (Tage) | Liquidiert |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -132,7 +115,7 @@ def report(results: dict) -> list:
             f"| {r['median_days'] if r['median_days'] is not None else '–'} | {r['liquidated'] or 'nein'} |"
         )
     lines.append("")
-    for name in ("Nasdaq 100 3x, Dip-Signal + Ausstieg", "Nasdaq 100 5x fest, Dip-Signal + Ausstieg"):
+    for name in ("Nasdaq 100 3x, Regeln",):
         main = results.get(name)
         if main:
             lines += [f"### Trades: {name}", "", "| Kauf | Verkauf | Ergebnis |", "| --- | --- | --- |"]
