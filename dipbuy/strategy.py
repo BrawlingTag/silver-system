@@ -92,20 +92,21 @@ def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
     stop20 = ind.hold_state(ndx, buy, stop=20)
     always = pd.Series(True, index=ndx.index)
     never = pd.Series(False, index=ndx.index)
-    rules = buy | pos["reentry"]
+    # Investiert, solange die Seite "Halten" zeigt; raus am Tag des Verkaufssignals
+    follow = lambda st: (~st["out"], st["sell"])  # noqa: E731
     plan = {
         "Nasdaq 100 halten (ohne Hebel)": (ndx, 1, always, never),
         "Nasdaq 100 3x halten": (ndx, 3, always, never),
-        "Nasdaq 100 2x, Regeln": (ndx, 2, rules, pos["sell"]),
-        "Nasdaq 100 3x, Regeln": (ndx, 3, rules, pos["sell"]),
+        "Nasdaq 100 2x, Regeln": (ndx, 2, *follow(pos)),
+        "Nasdaq 100 3x, Regeln": (ndx, 3, *follow(pos)),
         "Nasdaq 100 3x, nur Kaufsignal ohne Wiedereinstieg": (ndx, 3, buy, pos["sell"]),
-        "Nasdaq 100 3x, nur 200-Tage-Linie": (ndx, 3, ~trend["out"], trend["sell"]),
-        "Nasdaq 100 3x, Regeln, Kaufsignal nur über der Verkaufsmarke": (ndx, 3, buy | strict["reentry"], strict["sell"]),
-        "Nasdaq 100 3x, Regeln, Stopp 10 % unter Kaufkurs": (ndx, 3, buy | stop10["reentry"], stop10["sell"]),
-        "Nasdaq 100 3x, Regeln, Stopp 20 % unter Kaufkurs": (ndx, 3, buy | stop20["reentry"], stop20["sell"]),
-        "S&P 500 3x, Regeln": (spx, 3, buy | pos_spx["reentry"], pos_spx["sell"]),
-        "Nasdaq 100 5x täglich, Regeln": (ndx, 5, rules, pos["sell"]),
-        "Nasdaq 100 5x fest, Regeln": (ndx, 5, rules, pos["sell"], "fest"),
+        "Nasdaq 100 3x, nur 200-Tage-Linie (ohne Kaufsignal)": (ndx, 3, *follow(trend)),
+        "Nasdaq 100 3x, Kaufsignal nur über der Verkaufsmarke": (ndx, 3, *follow(strict)),
+        "Nasdaq 100 3x, Regeln, Stopp 10 % unter Kaufkurs": (ndx, 3, *follow(stop10)),
+        "Nasdaq 100 3x, Regeln, Stopp 20 % unter Kaufkurs": (ndx, 3, *follow(stop20)),
+        "S&P 500 3x, Regeln": (spx, 3, *follow(pos_spx)),
+        "Nasdaq 100 5x täglich, Regeln": (ndx, 5, *follow(pos)),
+        "Nasdaq 100 5x fest, Regeln": (ndx, 5, *follow(pos), "fest"),
     }
     return {name: simulate(*args[:4], start, *args[4:]) for name, args in plan.items()}
 

@@ -106,7 +106,7 @@ def sensitivity(d: dict, years: float) -> list:
             sig = ind.signals(d["spx"], d["vix"], d["fear_greed"], ath_pct=ath, vix_min=vix)
             pos = ind.hold_state(ndx, sig["buy"])
             s = summarize(signal_rows(ndx, sig), years)
-            sim = strategy.simulate(ndx, 3, sig["buy"] | pos["reentry"], pos["sell"], EVAL_FROM)
+            sim = strategy.simulate(ndx, 3, ~pos["out"], pos["sell"], EVAL_FROM)
             rows.append({"ath_pct": ath, "vix_min": vix, **s, "cagr": sim["cagr"], "max_dd": sim["max_dd"]})
     return rows
 
