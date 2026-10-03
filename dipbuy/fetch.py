@@ -29,30 +29,34 @@ def closes(tickers: list[str], period: str = "3y", start: str | None = None) -> 
 
 
 def fear_greed(days: int = 800) -> pd.Series | None:
-    """CNN Fear & Greed, inoffizieller Endpunkt der CNN-Seite."""
-    start = (date.today() - timedelta(days=days)).isoformat()
-    url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
+    """CNN Fear & Greed, inoffizieller Endpunkt der CNN-Seite.
+
+    Sehr frühe Startdaten lehnt CNN mit einem Serverfehler ab; dann wird mit 800 Tagen neu versucht.
+    """
     headers = {**UA, "Referer": "https://edition.cnn.com/", "Origin": "https://edition.cnn.com"}
-    try:
-        r = requests.get(url, headers=headers, timeout=30)
-        r.raise_for_status()
-        js = r.json()
-        rows = js["fear_and_greed_historical"]["data"]
-        s = pd.Series(
-            [p["y"] for p in rows],
-            index=pd.to_datetime([p["x"] for p in rows], unit="ms").normalize(),
-            name="fear_greed",
-        )
-        s = s[~s.index.duplicated(keep="last")].sort_index()
-        # Der aktuelle Wert steht separat und ist oft neuer als die Historie
-        now = js.get("fear_and_greed", {})
-        if "score" in now and "timestamp" in now:
-            ts = pd.to_datetime(now["timestamp"]).tz_localize(None).normalize()
-            s.loc[ts] = float(now["score"])
-        return s.sort_index()
-    except Exception as e:  # noqa: BLE001
-        log.warning("Fear & Greed nicht abrufbar: %s", e)
-        return None
+    for span in dict.fromkeys([days, 800]):
+        start = (date.today() - timedelta(days=span)).isoformat()
+        url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
+        try:
+            r = requests.get(url, headers=headers, timeout=30)
+            r.raise_for_status()
+            js = r.json()
+            rows = js["fear_and_greed_historical"]["data"]
+            s = pd.Series(
+                [p["y"] for p in rows],
+                index=pd.to_datetime([p["x"] for p in rows], unit="ms").normalize(),
+                name="fear_greed",
+            )
+            s = s[~s.index.duplicated(keep="last")].sort_index()
+            # Der aktuelle Wert steht separat und ist oft neuer als die Historie
+            now = js.get("fear_and_greed", {})
+            if "score" in now and "timestamp" in now:
+                ts = pd.to_datetime(now["timestamp"]).tz_localize(None).normalize()
+                s.loc[ts] = float(now["score"])
+            return s.sort_index()
+        except Exception as e:  # noqa: BLE001
+            log.warning("Fear & Greed ab %s nicht abrufbar: %s", start, e)
+    return None
 
 
 def fred(series_id: str, tries: int = 3, days: int = 1500) -> pd.Series | None:
