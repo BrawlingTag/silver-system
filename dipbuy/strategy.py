@@ -87,6 +87,9 @@ def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
     pos = ind.hold_state(ndx, buy)
     pos_spx = ind.hold_state(spx, buy)
     trend = ind.hold_state(ndx)
+    strict = ind.hold_state(ndx, buy, buy_overrides=False)
+    stop10 = ind.hold_state(ndx, buy, stop=10)
+    stop20 = ind.hold_state(ndx, buy, stop=20)
     always = pd.Series(True, index=ndx.index)
     never = pd.Series(False, index=ndx.index)
     rules = buy | pos["reentry"]
@@ -97,6 +100,9 @@ def strategies(d: dict, sig: pd.DataFrame, start) -> dict:
         "Nasdaq 100 3x, Regeln": (ndx, 3, rules, pos["sell"]),
         "Nasdaq 100 3x, nur Kaufsignal ohne Wiedereinstieg": (ndx, 3, buy, pos["sell"]),
         "Nasdaq 100 3x, nur 200-Tage-Linie": (ndx, 3, ~trend["out"], trend["sell"]),
+        "Nasdaq 100 3x, Regeln, Kaufsignal nur über der Verkaufsmarke": (ndx, 3, buy | strict["reentry"], strict["sell"]),
+        "Nasdaq 100 3x, Regeln, Stopp 10 % unter Kaufkurs": (ndx, 3, buy | stop10["reentry"], stop10["sell"]),
+        "Nasdaq 100 3x, Regeln, Stopp 20 % unter Kaufkurs": (ndx, 3, buy | stop20["reentry"], stop20["sell"]),
         "S&P 500 3x, Regeln": (spx, 3, buy | pos_spx["reentry"], pos_spx["sell"]),
         "Nasdaq 100 5x täglich, Regeln": (ndx, 5, rules, pos["sell"]),
         "Nasdaq 100 5x fest, Regeln": (ndx, 5, rules, pos["sell"], "fest"),

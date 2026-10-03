@@ -86,12 +86,17 @@ def signals(spx: pd.Series, vix: pd.Series, fear_greed: pd.Series = None, ath_pc
     return out
 
 
-def hold_state(close: pd.Series, buy: pd.Series = None, exit_below: float = None, hold: int = None) -> pd.DataFrame:
+def hold_state(close: pd.Series, buy: pd.Series = None, exit_below: float = None, hold: int = None,
+               stop: float = None, buy_overrides: bool = True) -> pd.DataFrame:
     """Halten oder draußen für jeden Handelstag.
 
     Verkauf, wenn der Index unter die Marke `exit_below` % unter seiner 200-Tage-Linie fällt.
     Danach draußen, bis er wieder über der Linie schließt (Wiedereinstieg) oder ein Kaufsignal kommt.
+    `stop`: nach einem Kaufsignal zusätzlich verkaufen, wenn der Index so viel Prozent unter den Kaufkurs fällt.
+    `buy_overrides=False`: ein Kaufsignal zählt nur, solange der Index nicht unter der Verkaufsmarke liegt.
     """
+    if stop is not None or not buy_overrides:
+        return _hold_loop(close, buy, exit_below, hold, stop, buy_overrides)
     exit_below = config.EXIT_BELOW if exit_below is None else exit_below
     hold = hold or config.SIGNAL_HOLD
     close = close.dropna()
@@ -103,6 +108,41 @@ def hold_state(close: pd.Series, buy: pd.Series = None, exit_below: float = None
     falls = out["below"] & ~out["below"].shift(1, fill_value=False)
     state = pd.Series(np.nan, index=close.index).mask(falls, 1.0).mask(out["above"] | buy, 0.0).ffill()
     out["out"] = state == 1.0
+    was_out = out["out"].shift(1, fill_value=False)
+    out["sell"] = out["out"] & ~was_out
+    out["reentry"] = out["above"] & was_out
+    out["sell_recent"] = recent(out["sell"], hold)
+    out["reentry_recent"] = recent(out["reentry"], hold)
+    return out
+
+
+def _hold_loop(close, buy, exit_below, hold, stop, buy_overrides) -> pd.DataFrame:
+    """Wie `hold_state`, aber Tag für Tag, damit Stopp und Kaufkurs berücksichtigt werden können."""
+    exit_below = config.EXIT_BELOW if exit_below is None else exit_below
+    hold = hold or config.SIGNAL_HOLD
+    close = close.dropna()
+    sma = close.rolling(200).mean()
+    out = pd.DataFrame({"close": close, "sma200": sma, "distance": (close / sma - 1) * 100})
+    out["below"] = out["distance"] < -exit_below
+    out["above"] = out["distance"] > 0
+    buy = pd.Series(False, index=close.index) if buy is None else buy.reindex(close.index, fill_value=False)
+    below, above, b, px = out["below"].to_numpy(), out["above"].to_numpy(), buy.to_numpy(), close.to_numpy()
+    state = np.zeros(len(close), dtype=bool)
+    is_out, entry, prev_below = False, None, False
+    for i in range(len(close)):
+        if b[i] and (buy_overrides or not below[i]):
+            if is_out or entry is None:
+                entry = px[i]
+            is_out = False
+        elif is_out:
+            if above[i]:
+                is_out, entry = False, None
+        elif (below[i] and (not prev_below or not buy_overrides)) or (
+                stop is not None and entry is not None and px[i] < entry * (1 - stop / 100)):
+            is_out, entry = True, None
+        prev_below = below[i]
+        state[i] = is_out
+    out["out"] = state
     was_out = out["out"].shift(1, fill_value=False)
     out["sell"] = out["out"] & ~was_out
     out["reentry"] = out["above"] & was_out

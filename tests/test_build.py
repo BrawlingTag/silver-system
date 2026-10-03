@@ -170,3 +170,27 @@ def test_stock_score_prefers_dip_with_rising_estimates():
     down = pd.Series([100 + i * 0.3 for i in range(250)] + [175 - i * 1.5 for i in range(50)], index=idx)
     info = {"target": 200.0, "rating": 1.7, "revision": 3.0}
     assert ind.stock_score(down, info)["score"] > ind.stock_score(up, info)["score"]
+
+
+def test_loop_matches_fast_hold_state():
+    s = series((300, 0.15), (40, -1.0), (60, 1.2), (30, -0.8), (40, 0.9))
+    buy = pd.Series(False, index=s.index)
+    buy.iloc[[320, 380]] = True
+    fast = ind.hold_state(s, buy)
+    slow = ind._hold_loop(s, buy, None, None, None, True)
+    assert (fast["out"] == slow["out"]).all()
+
+
+def test_stop_below_buy_price():
+    s = series((300, 0.15), (30, -1.0), (2, 0.5), (15, -1.0))
+    buy = pd.Series(False, index=s.index)
+    buy.iloc[331] = True
+    assert not ind.hold_state(s, buy)["out"].iloc[-1]
+    assert ind.hold_state(s, buy, stop=10)["out"].iloc[-1]
+
+
+def test_buy_below_sell_mark_ignored_when_strict():
+    s = series((300, 0.15), (30, -1.0), (3, 0.5))
+    buy = pd.Series(False, index=s.index)
+    buy.iloc[-2] = True
+    assert ind.hold_state(s, buy, buy_overrides=False)["out"].iloc[-1]
