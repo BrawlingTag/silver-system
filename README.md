@@ -36,3 +36,7 @@ cd site && python -m http.server
 ```
 
 Keine Anlageberatung.
+
+## Backtest
+
+`python -m dipbuy.backtest` rechnet den Score ab 2007 rückwirkend und wertet jedes Kaufsignal aus: wie lange nach dem Hoch es kam, ob vor oder nach dem Tiefpunkt, und wie sich S&P 500, Nasdaq 100 und gehebelte Varianten danach entwickelt haben. Auf GitHub läuft er unter Actions → Backtest → "Run workflow".

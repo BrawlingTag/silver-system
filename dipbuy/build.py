@@ -71,6 +71,7 @@ def gather_market(src) -> dict:
         "fear_greed": aligned(src.fear_greed()),
         "breadth": aligned(src.breadth()),
         "hy_spread": aligned(src.fred("BAMLH0A0HYM2")),
+        "baa_spread": aligned(src.fred("BAA10Y")),
         "sahm": aligned(src.fred("SAHMREALTIME")),
     }
 

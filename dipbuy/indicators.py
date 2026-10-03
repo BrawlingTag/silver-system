@@ -92,14 +92,39 @@ def wende_parts(d: dict) -> dict:
 
 
 def makro_parts(d: dict) -> dict:
+    """Kreditspreads und Rezessionsrisiko.
+
+    FRED liefert den High-Yield-Spread nur für die letzten drei Jahre. Für ältere Tage springt
+    der Spread zwischen Baa-Unternehmensanleihen und 10-jährigen Staatsanleihen (BAA10Y) ein.
+    """
     p = {}
-    hy = d.get("hy_spread")
-    if hy is not None:
-        p["hy_level"] = lin(hy, 8, 4)
-        p["hy_trend"] = lin(hy - hy.shift(20), 1.0, 0.0)
+    hy, baa = d.get("hy_spread"), d.get("baa_spread")
+    if hy is not None or baa is not None:
+        level = lin(hy, 8, 4) if hy is not None else None
+        trend = lin(hy - hy.shift(20), 1.0, 0.0) if hy is not None else None
+        if baa is not None:
+            b_level, b_trend = lin(baa, 3.5, 2.0), lin(baa - baa.shift(20), 0.4, 0.0)
+            level = b_level if level is None else level.fillna(b_level)
+            trend = b_trend if trend is None else trend.fillna(b_trend)
+        p["hy_level"], p["hy_trend"] = level, trend
     if d.get("sahm") is not None:
         p["sahm"] = lin(d["sahm"], 0.5, 0.2)
     return p
+
+
+def credit_stress(d: dict, idx) -> pd.Series:
+    """Kreditspreads steigen schnell: High Yield um mehr als 0,75 Pp. oder Baa um mehr als 0,3 Pp. in 20 Tagen."""
+    stress = pd.Series(False, index=idx)
+    hy, baa = d.get("hy_spread"), d.get("baa_spread")
+    hy_known = pd.Series(False, index=idx)
+    if hy is not None:
+        hy = hy.reindex(idx)
+        stress |= (hy - hy.shift(20)) > config.VETO_HY_RISE
+        hy_known = (hy - hy.shift(20)).notna()
+    if baa is not None:
+        baa = baa.reindex(idx)
+        stress |= ~hy_known & ((baa - baa.shift(20)) > 0.3)
+    return stress
 
 
 def market_score(d: dict) -> pd.DataFrame:
@@ -120,9 +145,8 @@ def market_score(d: dict) -> pd.DataFrame:
     out["score"] = (sub.fillna(0) * weights).sum(axis=1) / (sub.notna() * weights).sum(axis=1)
 
     veto = pd.Series(False, index=idx)
-    if d.get("sahm") is not None and d.get("hy_spread") is not None:
-        hy = d["hy_spread"].reindex(idx)
-        veto = (d["sahm"].reindex(idx) >= config.VETO_SAHM) & ((hy - hy.shift(20)) > config.VETO_HY_RISE)
+    if d.get("sahm") is not None:
+        veto = (d["sahm"].reindex(idx) >= config.VETO_SAHM) & credit_stress(d, idx)
     out["veto"] = veto
     out.loc[veto, "score"] = out.loc[veto, "score"].clip(upper=config.VETO_CAP)
 

@@ -17,9 +17,10 @@ UA = {
 }
 
 
-def closes(tickers: list[str], period: str = "3y") -> pd.DataFrame:
+def closes(tickers: list[str], period: str = "3y", start: str | None = None) -> pd.DataFrame:
     """Schlusskurse (dividendenbereinigt) als DataFrame, eine Spalte je Ticker."""
-    data = yf.download(tickers, period=period, auto_adjust=True, progress=False, threads=True)
+    span = {"start": start} if start else {"period": period}
+    data = yf.download(tickers, **span, auto_adjust=True, progress=False, threads=True)
     df = data["Close"]
     if isinstance(df, pd.Series):
         df = df.to_frame(tickers[0])
@@ -27,9 +28,9 @@ def closes(tickers: list[str], period: str = "3y") -> pd.DataFrame:
     return df
 
 
-def fear_greed() -> pd.Series | None:
+def fear_greed(days: int = 800) -> pd.Series | None:
     """CNN Fear & Greed, inoffizieller Endpunkt der CNN-Seite."""
-    start = (date.today() - timedelta(days=800)).isoformat()
+    start = (date.today() - timedelta(days=days)).isoformat()
     url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
     headers = {**UA, "Referer": "https://edition.cnn.com/", "Origin": "https://edition.cnn.com"}
     try:
@@ -54,12 +55,12 @@ def fear_greed() -> pd.Series | None:
         return None
 
 
-def fred(series_id: str, tries: int = 3) -> pd.Series | None:
+def fred(series_id: str, tries: int = 3, days: int = 1500) -> pd.Series | None:
     """Zeitreihe der US-Notenbank St. Louis (FRED), ohne API-Key über den CSV-Export.
 
     Der Export antwortet manchmal sehr langsam, darum nur die letzten Jahre und mehrere Versuche.
     """
-    start = (date.today() - timedelta(days=1500)).isoformat()
+    start = (date.today() - timedelta(days=days)).isoformat()
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
     for attempt in range(1, tries + 1):
         try:
@@ -89,13 +90,13 @@ def sp500_tickers() -> list[str] | None:
         return None
 
 
-def breadth() -> pd.Series | None:
+def breadth(start: str | None = None) -> pd.Series | None:
     """Anteil der S&P-500-Aktien über ihrer 200-Tage-Linie in Prozent."""
     tickers = sp500_tickers()
     if not tickers:
         return None
     try:
-        df = closes(tickers, period="3y")
+        df = closes(tickers, period="3y", start=start)
         sma = df.rolling(200).mean()
         valid = sma.notna() & df.notna()
         above = (df > sma) & valid
