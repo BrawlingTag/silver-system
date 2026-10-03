@@ -160,7 +160,7 @@ function renderExits(d) {
     if (e.hold == null) continue;
     const pill = e.hold
       ? `<span class="pill" style="background:var(--green)">Halten</span>`
-      : `<span class="pill" style="background:var(--red)">Verkaufen</span>`;
+      : `<span class="pill" style="background:var(--red)">Draußen</span>`;
     const dist = `<span class="${e.distance >= 0 ? "pos" : "neg"}">${e.distance >= 0 ? "+" : ""}${fmt(e.distance, 1, " %")}</span>`;
     box.appendChild(el("div", { class: "exit" },
       `<span>${e.name}<br><span class="muted">${dist} zur Linie · seit ${e.days} Tagen</span></span>${pill}`));

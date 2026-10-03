@@ -73,10 +73,16 @@ def rules(close: pd.Series, dip_pct: float = None, window: int = None, rsi_ma: i
     out["below"] = out["distance"] < -exit_below
     out["sell"] = out["below"] & ~out["below"].shift(1, fill_value=False)
     # Nach einem Verkauf "draußen", bis der Index wieder über der Linie schließt
-    out_state = pd.Series(np.nan, index=out.index).mask(out["below"], 1.0).mask(out["trend"], 0.0).ffill()
-    out["reentry"] = out["trend"] & (out_state.shift(1) == 1.0)
+    out["out"] = sold_out(out["below"], out["trend"])
+    out["reentry"] = out["trend"] & out["out"].shift(1, fill_value=False)
     out["reentry_recent"] = out["reentry"].astype(float).rolling(hold, min_periods=1).max().astype(bool)
     return out
+
+
+def sold_out(below: pd.Series, above: pd.Series) -> pd.Series:
+    """Nach einem Verkauf (below) "draußen", bis der Index wieder über der Linie (above) schließt."""
+    state = pd.Series(np.nan, index=below.index).mask(below, 1.0).mask(above, 0.0).ffill()
+    return state == 1.0
 
 
 def status(row) -> dict:
@@ -87,6 +93,9 @@ def status(row) -> dict:
         return {"color": "red", "label": "Verkaufen",
                 "text": f"Der Nasdaq 100 liegt mehr als {config.EXIT_BELOW:g} % unter seiner 200-Tage-Linie. "
                         "Hebel raus, keine Neukäufe."}
+    if row["out"]:
+        return {"color": "red", "label": "Draußen bleiben",
+                "text": "Verkauft. Wieder einsteigen, sobald der Nasdaq 100 über seiner 200-Tage-Linie schließt."}
     if row["reentry_recent"]:
         return {"color": "green", "label": "Wieder einsteigen",
                 "text": "Der Nasdaq 100 ist nach dem Verkauf zurück über seiner 200-Tage-Linie. Hebel wieder kaufen."}
@@ -104,13 +113,15 @@ def status(row) -> dict:
 
 
 def exit_signal(close: pd.Series, exit_below: float = None) -> dict:
-    """Hebel halten, solange der Index nicht mehr als `exit_below` % unter seiner 200-Tage-Linie liegt."""
+    """Hebel halten, bis der Index mehr als `exit_below` % unter seine 200-Tage-Linie fällt;
+    danach draußen bleiben, bis er wieder über der Linie schließt."""
     exit_below = config.EXIT_BELOW if exit_below is None else exit_below
     close = close.dropna()
     sma200 = close.rolling(200).mean()
     if sma200.dropna().empty:
         return {"hold": None}
-    hold = (close / sma200 - 1) * 100 >= -exit_below
+    dist = (close / sma200 - 1) * 100
+    hold = ~sold_out(dist < -exit_below, dist > 0)
     hold = hold[sma200.notna()]
     changed = hold.ne(hold.shift())
     since = int(len(hold) - 1 - np.flatnonzero(changed.to_numpy())[-1])

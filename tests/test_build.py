@@ -111,3 +111,12 @@ def test_reentry_after_sell():
     rl = ind.rules(s)
     assert rl["sell"].any() and rl["reentry"].sum() == 1
     assert rl.index[rl["reentry"]][0] > rl.index[rl["sell"]][0]
+
+
+def test_stays_out_after_sell_until_back_above_line():
+    s = series((300, 0.15), (18, -1.0), (4, 1.0))   # Verkauf, dann leichte Erholung, noch unter der Linie
+    rl = ind.rules(s)
+    last = rl.iloc[-1]
+    assert rl["sell"].any() and not last["below"] and last["out"]
+    assert ind.status(last)["label"] == "Draußen bleiben"
+    assert ind.exit_signal(s)["hold"] is False
