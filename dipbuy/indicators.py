@@ -146,6 +146,7 @@ def market_score(d: dict) -> pd.DataFrame:
     if d.get("sahm") is not None:
         veto = (d["sahm"].reindex(idx) >= config.VETO_SAHM) & credit_stress(d, idx)
     out["veto"] = veto
+    out["trend_ok"] = d["spx"] >= d["spx"].rolling(200).mean()
     out.loc[veto, "score"] = out.loc[veto, "score"].clip(upper=config.VETO_CAP)
 
     for name, parts in (("angst", angst_p), ("wende", wende_p), ("makro", makro_p)):
@@ -154,16 +155,16 @@ def market_score(d: dict) -> pd.DataFrame:
     return out
 
 
-def signal(score: float) -> dict:
+def signal(score: float, trend_ok: bool = True) -> dict:
     if score is None or np.isnan(score):
         return {"color": "grey", "label": "Keine Daten", "lever": "-"}
-    if score >= config.STRONG_FROM:
-        return {"color": "green", "label": "Gehebelt einsteigen", "lever": "2x, auch 3x vertretbar"}
     if score >= config.GREEN_FROM:
-        return {"color": "green", "label": "Gehebelt einsteigen", "lever": "2x"}
+        if trend_ok or not config.TREND_FILTER:
+            return {"color": "green", "label": "Dip kaufen", "lever": "2x, mit viel Risikobereitschaft 3x"}
+        return {"color": "yellow", "label": "Dip im Abwärtstrend", "lever": "kein Hebel, bis der S&P 500 wieder über der 200-Tage-Linie liegt"}
     if score >= config.RED_BELOW:
-        return {"color": "yellow", "label": "Vorsichtig, Teilposition", "lever": "ungehebelt oder kleine 2x-Tranche"}
-    return {"color": "red", "label": "Abwarten", "lever": "kein Hebel-Neukauf"}
+        return {"color": "yellow", "label": "Leichter Rücksetzer", "lever": "beobachten, noch kein Hebel-Neukauf"}
+    return {"color": "red", "label": "Kein Dip", "lever": "abwarten"}
 
 
 def exit_signal(close: pd.Series) -> dict:

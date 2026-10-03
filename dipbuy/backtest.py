@@ -20,8 +20,8 @@ log = logging.getLogger("dipbuy")
 START = "2004-06-01"   # Vorlauf für 200-Tage-Linien und 52-Wochen-Hochs
 EVAL_FROM = "2007-01-01"
 NEW_EPISODE_AFTER = 20  # Handelstage ohne Signal, bevor ein neues Signal zählt
-THRESHOLDS = [50, 55, 60, 65, 70]
-DETAIL_THRESHOLD = 60  # nur für diese Schwelle werden alle Einzelsignale ausgegeben
+THRESHOLDS = [45, 50, 55, 60, 65]
+DETAIL_THRESHOLD = config.GREEN_FROM  # nur für diese Schwelle werden alle Einzelsignale ausgegeben
 
 
 def trend_filters(spx: pd.Series) -> dict:

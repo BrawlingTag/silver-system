@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from dipbuy import build, indicators as ind
+from dipbuy import build, config, indicators as ind
 from tests.fake_source import FakeSource
 
 
@@ -19,10 +19,11 @@ def test_calm_market_is_red(tmp_path):
     assert all(e["hold"] for e in data["exits"])
 
 
-def test_crash_signals_without_waiting_for_turn(tmp_path):
+def test_crash_below_200_day_line_is_only_yellow(tmp_path):
     data = run(tmp_path, crash_pct=0.25, crash_end=0)
     assert data["sub"]["angst"] > 80
-    assert data["signal"]["color"] == "green"
+    assert not data["trend_ok"]
+    assert data["signal"]["label"] == "Dip im Abwärtstrend"
 
 
 def test_small_correction_raises_score(tmp_path):
@@ -30,14 +31,16 @@ def test_small_correction_raises_score(tmp_path):
     small = run(tmp_path, crash_pct=0.03, crash_len=10, crash_end=0)["score"]
     six = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=0)
     assert calm < small < six["score"]
-    assert six["signal"]["color"] != "red"
+    # im intakten Aufwärtstrend wird aus der 6-%-Korrektur ein Kaufsignal
+    six = run(tmp_path, crash_pct=0.06, crash_len=10, crash_end=0, drift=0.0012)
+    assert six["trend_ok"]
+    assert six["signal"]["color"] == "green", six["score"]
 
 
-def test_crash_with_turn_is_green(tmp_path):
+def test_recovery_shows_stabilisation(tmp_path):
     data = run(tmp_path, crash_pct=0.25, crash_end=8, recovery=0.08)
     assert data["dip"]
     assert data["sub"]["wende"] > 50
-    assert data["signal"]["color"] == "green", data["score"]
 
 
 def test_output_shape(tmp_path):
@@ -56,7 +59,7 @@ def test_veto_caps_score(tmp_path):
     out = tmp_path / "d.json"
     data = build.build(src, out)
     assert data["veto"]
-    assert data["score"] <= 60
+    assert data["score"] <= config.VETO_CAP
 
 
 def test_missing_sources_still_build(tmp_path):

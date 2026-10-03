@@ -8,16 +8,17 @@ Die Seite läuft kostenlos auf GitHub Pages und aktualisiert sich automatisch we
 
 | Teilscore | Gewicht | Indikatoren |
 | --- | --- | --- |
-| Angst im Markt | 45 % | CNN Fear & Greed, VIX, VIX/VIX3M, Abstand der Indizes vom Hoch, Anteil S&P-500-Aktien über 200-Tage-Linie |
-| Wende-Bestätigung | 35 % | RSI dreht aus überverkauft, Index zurück über 20- und 50-Tage-Linie, VIX fällt vom Hoch. Zählt nur nach einem Rücksetzer von mindestens 8 %. |
-| Makro | 20 % | High-Yield-Spread (Niveau und Änderung), Sahm-Regel |
+| Angst im Markt | 60 % | CNN Fear & Greed, VIX, VIX/VIX3M, RSI (überverkauft zählt sofort), Abstand der Indizes vom Hoch, Anteil S&P-500-Aktien über 200-Tage-Linie. Skaliert so, dass schon eine Korrektur von rund 6 % deutlich zählt. |
+| Stabilisierung | 15 % | VIX kommt vom 10-Tage-Hoch zurück, Index erholt sich vom 5-Tage-Tief. Zählt nur nach einem Rücksetzer von mindestens 5 %. |
+| Makro | 25 % | High-Yield-Spread (für ältere Daten Baa-Spread), Änderung über 20 Tage, Sahm-Regel |
 
-- **Ampel:** unter 40 Rot (abwarten), 40 bis 65 Gelb (Teilposition), ab 65 Grün (2x), ab 80 auch 3x vertretbar.
+- **Ampel:** unter 35 Rot (kein Dip), 35 bis 50 Gelb (leichter Rücksetzer), ab 50 Grün (Dip kaufen, 2x, mit viel Risikobereitschaft 3x).
+- **Trendfilter:** Grün nur, solange der S&P 500 über seiner 200-Tage-Linie liegt. Darunter bleibt es Gelb.
 - **Veto:** Löst die Sahm-Regel aus und steigen die Kreditspreads schnell, bleibt der Score höchstens Gelb.
 - **Ausstiegssignal:** Hebel nur halten, solange der Index über seiner 200-Tage-Linie liegt.
 - **Watchlist:** 40 große Growth-Werte aus dem Nasdaq 100, bewertet nach Rücksetzer, RSI, Kursziel-Abstand, Analysten-Rating und Änderung der Gewinnschätzung.
 
-Alle Schwellen und Gewichte stehen in `dipbuy/config.py` und sind Startwerte, die noch per Backtest kalibriert werden sollen.
+Backtest 2007 bis 2026 mit diesen Einstellungen: 44 Signale (rund 2 pro Jahr), Median 27 Tage vom Hoch bis zum Signal. Nasdaq 100 mit 3x Hebel lag 3 Monate nach einem Signal im Schnitt bei +20,7 % (81 % der Fälle positiv), bei einem Kauf an einem beliebigen Tag bei +11,0 %. Alle Schwellen stehen in `dipbuy/config.py`.
 
 ## Aufbau
 

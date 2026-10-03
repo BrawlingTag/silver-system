@@ -111,7 +111,8 @@ def summary_text(row, dip: bool) -> str:
     else:
         w = "erste Stabilisierung"
     m = "" if makro is None or math.isnan(makro) or makro >= 50 else ", Makro-Lage angespannt"
-    return f"{a}, {w}{m}."
+    t = "" if row["trend_ok"] else " S&P 500 unter der 200-Tage-Linie."
+    return f"{a}, {w}{m}.{t}"
 
 
 def build(src, out_path: Path) -> dict:
@@ -165,14 +166,15 @@ def build(src, out_path: Path) -> dict:
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "asof": asof.strftime("%Y-%m-%d"),
         "score": round(score, 1),
-        "signal": ind.signal(score),
+        "signal": ind.signal(score, bool(last["trend_ok"])),
+        "trend_ok": bool(last["trend_ok"]),
         "summary": summary_text(last, dip),
         "dip": dip,
         "dip_min": config.DIP_MIN_DRAWDOWN,
         "veto": bool(last["veto"]),
         "sub": {k: clean(round(float(last[k]), 1)) for k in ("angst", "wende", "makro")},
         "weights": config.WEIGHTS,
-        "thresholds": {"red_below": config.RED_BELOW, "green_from": config.GREEN_FROM, "strong_from": config.STRONG_FROM},
+        "thresholds": {"red_below": config.RED_BELOW, "green_from": config.GREEN_FROM},
         "parts": parts,
         "exits": exits,
         "history": history,
