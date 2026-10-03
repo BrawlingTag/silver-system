@@ -79,7 +79,7 @@
   </section>
 
   <section class="card">
-    <h2>Kaufsignal: alle drei Regeln erfüllt</h2>
+    <h2>Kaufsignal: alle drei Regeln oder Wiedereinstieg</h2>
     <div id="rules"></div>
   </section>
 
@@ -147,6 +147,10 @@ function renderRules(d) {
   document.getElementById("rules").innerHTML = d.rules.map(r => `<div class="rule">
       <span class="check" style="background:${r.ok ? "var(--green)" : "var(--grey)"}">${r.ok ? "✓" : "–"}</span>
       <span><b>${r.label}</b><span class="muted">${r.value}</span></span></div>`).join("");
+  const re = d.reentry;
+  if (re) document.getElementById("rules").innerHTML += `<div class="rule">
+      <span class="check" style="background:${re.ok ? "var(--green)" : "var(--grey)"}">${re.ok ? "✓" : "–"}</span>
+      <span><b>${re.label}</b><span class="muted">${re.value}</span></span></div>`;
 }
 
 function renderExits(d) {

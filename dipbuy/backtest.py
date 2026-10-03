@@ -103,7 +103,7 @@ def sensitivity(d: dict, years: float) -> list:
         for ma in RSI_MAS:
             rl = ind.rules(ndx, dip_pct=dip, rsi_ma=ma)
             s = summarize(signal_rows(ndx, rl), years)
-            sim = strategy.simulate(ndx, 3, rl["buy"], rl["below"], EVAL_FROM)
+            sim = strategy.simulate(ndx, 3, rl["buy"] | rl["reentry"], rl["below"], EVAL_FROM)
             rows.append({"dip_pct": dip, "rsi_ma": ma, **s, "cagr": sim["cagr"], "max_dd": sim["max_dd"]})
     return rows
 
@@ -119,9 +119,10 @@ def report(result: dict) -> str:
         "",
         f"Kauf: Nasdaq 100 mindestens {config.DIP_PCT:g} % unter dem Hoch (in den letzten {config.DIP_WINDOW} Tagen), "
         f"über der 200-Tage-Linie, RSI kreuzt über seinen {config.RSI_MA}-Tage-Schnitt. "
-        f"Verkauf: mehr als {config.EXIT_BELOW:g} % unter der 200-Tage-Linie.",
+        f"Verkauf: mehr als {config.EXIT_BELOW:g} % unter der 200-Tage-Linie. "
+        "Wiedereinstieg: nach einem Verkauf wieder über der 200-Tage-Linie.",
         "",
-        "## Kaufsignale",
+        "## Dip-Kaufsignale",
         "",
         f"{s['count']} Signale, {s.get('per_year')} pro Jahr, Abstand im Median {s.get('gap_median_days') or '–'} Tage. "
         f"Nach dem Signal fiel der Nasdaq im Schnitt noch {s.get('further_drop_avg')} %, schlimmstenfalls {s.get('further_drop_worst')} %.",

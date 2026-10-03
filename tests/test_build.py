@@ -103,3 +103,11 @@ def test_stock_score_prefers_dip_with_rising_estimates():
     down = pd.Series([100 + i * 0.3 for i in range(250)] + [175 - i * 1.5 for i in range(50)], index=idx)
     info = {"target": 200.0, "rating": 1.7, "revision": 3.0}
     assert ind.stock_score(down, info)["score"] > ind.stock_score(up, info)["score"]
+
+
+def test_reentry_after_sell():
+    # Aufwärtstrend, Absturz deutlich unter die Linie (Verkauf), dann kräftige Erholung zurück darüber
+    s = series((300, 0.15), (40, -1.0), (60, 1.2))
+    rl = ind.rules(s)
+    assert rl["sell"].any() and rl["reentry"].sum() == 1
+    assert rl.index[rl["reentry"]][0] > rl.index[rl["sell"]][0]

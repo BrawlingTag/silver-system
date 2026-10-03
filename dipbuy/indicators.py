@@ -43,6 +43,7 @@ def rules(close: pd.Series, dip_pct: float = None, window: int = None, rsi_ma: i
       2. trend: Index schließt über seiner 200-Tage-Linie
       3. turn:  RSI kreuzt über seinen `rsi_ma`-Tage-Schnitt
     Verkauf, wenn der Index mehr als `exit_below` % unter seiner 200-Tage-Linie schließt.
+    Wiedereinstieg: der erste Tag nach einem Verkauf, an dem der Index wieder über der Linie schließt.
     """
     dip_pct = config.DIP_PCT if dip_pct is None else dip_pct
     window = window or config.DIP_WINDOW
@@ -71,6 +72,10 @@ def rules(close: pd.Series, dip_pct: float = None, window: int = None, rsi_ma: i
     out["buy_recent"] = out["buy"].astype(float).rolling(hold, min_periods=1).max().astype(bool)
     out["below"] = out["distance"] < -exit_below
     out["sell"] = out["below"] & ~out["below"].shift(1, fill_value=False)
+    # Nach einem Verkauf "draußen", bis der Index wieder über der Linie schließt
+    out_state = pd.Series(np.nan, index=out.index).mask(out["below"], 1.0).mask(out["trend"], 0.0).ffill()
+    out["reentry"] = out["trend"] & (out_state.shift(1) == 1.0)
+    out["reentry_recent"] = out["reentry"].astype(float).rolling(hold, min_periods=1).max().astype(bool)
     return out
 
 
@@ -82,6 +87,9 @@ def status(row) -> dict:
         return {"color": "red", "label": "Verkaufen",
                 "text": f"Der Nasdaq 100 liegt mehr als {config.EXIT_BELOW:g} % unter seiner 200-Tage-Linie. "
                         "Hebel raus, keine Neukäufe."}
+    if row["reentry_recent"]:
+        return {"color": "green", "label": "Wieder einsteigen",
+                "text": "Der Nasdaq 100 ist nach dem Verkauf zurück über seiner 200-Tage-Linie. Hebel wieder kaufen."}
     if row["buy_recent"]:
         return {"color": "green", "label": "Kaufen",
                 "text": "Alle drei Regeln sind erfüllt: Rücksetzer, Aufwärtstrend und der RSI dreht nach oben."}

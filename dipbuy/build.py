@@ -90,6 +90,14 @@ def rule_rows(row) -> list:
     ]
 
 
+def reentry_row(row) -> dict:
+    return {
+        "label": "Oder Wiedereinstieg: Nasdaq 100 nach einem Verkauf wieder über der 200-Tage-Linie",
+        "value": "heute erfüllt" if row["reentry_recent"] else "nicht erfüllt",
+        "ok": bool(row["reentry_recent"]),
+    }
+
+
 def build(src, out_path: Path) -> dict:
     d = gather_market(src)
     rl = ind.rules(d["ndx"])
@@ -107,7 +115,7 @@ def build(src, out_path: Path) -> dict:
         "dates": [x.strftime("%Y-%m-%d") for x in hist.index],
         "ndx": [clean(round(float(v), 1)) for v in hist["close"]],
         "sma200": [clean(round(float(v), 1)) for v in hist["sma200"]],
-        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hist["buy"]]],
+        "buys": [x.strftime("%Y-%m-%d") for x in hist.index[hist["buy"] | hist["reentry"]]],
         "sells": [x.strftime("%Y-%m-%d") for x in hist.index[hist["sell"]]],
     }
 
@@ -131,6 +139,7 @@ def build(src, out_path: Path) -> dict:
         "asof": asof.strftime("%Y-%m-%d"),
         "signal": ind.status(last),
         "rules": rule_rows(last),
+        "reentry": reentry_row(last),
         "info": {"fear_greed": fg, "mood": mood(fg), "vix": vix},
         "exit_below": config.EXIT_BELOW,
         "exits": exits,
