@@ -55,3 +55,25 @@ def test_trigger_needs_uptrend_on_buy_day():
     setup, trigger = ind.dip_entry(score, broken, r, ma=3, setup_days=10)
     assert setup.iloc[-1] and not trigger.any()
     assert ind.signal(60.0, False, True, False)["label"] == "Dip im Abwärtstrend"
+
+
+def test_simulate_5x_liquidation():
+    import pandas as pd
+    from dipbuy import strategy
+    idx = pd.bdate_range("2020-01-01", periods=6)
+    entries = pd.Series([True, False, False, False, True, False], index=idx)
+    exits = pd.Series(False, index=idx)
+
+    # Täglicher Hebel: ein Tag mit -20 % macht ein 5x-Produkt wertlos
+    crash = pd.Series([100, 100, 80, 100, 100, 110], index=idx, dtype=float)
+    r = strategy.simulate(crash, 5, entries, exits, idx[0])
+    assert r["final"] == 0 and r["liquidated"] == "2020-01-03" and r["trades"] == 1
+
+    # Fester Hebel: -20 % seit Kauf, verteilt auf mehrere Tage, liquidiert ebenfalls
+    slide = pd.Series([100, 95, 90, 85, 80, 120], index=idx, dtype=float)
+    r = strategy.simulate(slide, 5, entries, exits, idx[0], mode="fest")
+    assert r["final"] == 0 and r["liquidated"] == "2020-01-07"
+
+    # Täglicher Hebel übersteht denselben Abstieg (Tagesverluste unter 20 %)
+    r = strategy.simulate(slide, 5, entries, exits, idx[0])
+    assert r["liquidated"] is None and r["final"] > 0
