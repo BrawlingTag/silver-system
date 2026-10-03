@@ -21,6 +21,22 @@ START = "2004-06-01"   # Vorlauf für 200-Tage-Linien und 52-Wochen-Hochs
 EVAL_FROM = "2007-01-01"
 NEW_EPISODE_AFTER = 20  # Handelstage ohne Signal, bevor ein neues Signal zählt
 THRESHOLDS = [50, 55, 60, 65, 70]
+DETAIL_THRESHOLD = 60  # nur für diese Schwelle werden alle Einzelsignale ausgegeben
+
+
+def trend_filters(spx: pd.Series) -> dict:
+    """Varianten, die Kaufsignale in Bärenmärkten ausfiltern sollen."""
+    sma200 = spx.rolling(200).mean()
+    above = spx >= sma200
+    near = spx >= sma200 * 0.97
+    rising = sma200 > sma200.shift(20)
+    return {
+        "ohne Filter": pd.Series(True, index=spx.index),
+        "über 200-Tage-Linie": above,
+        "max. 3 % unter 200-Tage-Linie": near,
+        "200-Tage-Linie steigt": rising,
+        "nah an Linie und Linie steigt": near & rising,
+    }
 HORIZONS = {"1M": 21, "3M": 63, "6M": 126, "12M": 252}
 # Grobe jährliche Kosten gehebelter ETFs (Gebühr plus Finanzierung)
 LEVER_COST = {2: 0.015, 3: 0.03}
@@ -75,12 +91,13 @@ def fwd(series: pd.Series, day, n: int):
     return float(series.iloc[i + n] / series.iloc[i] - 1) * 100
 
 
-def analyse(d: dict, sc: pd.DataFrame, threshold: float) -> list:
+def analyse(d: dict, sc: pd.DataFrame, threshold: float, allowed: pd.Series | None = None) -> list:
     spx, ndx = d["spx"], d["ndx"]
     lev = {"ndx2x": leveraged(ndx, 2), "ndx3x": leveraged(ndx, 3), "spx2x": leveraged(spx, 2)}
     peak = spx.cummax()
     rows = []
-    for day in episodes(sc["score"], threshold):
+    score = sc["score"] if allowed is None else sc["score"].where(allowed.reindex(sc.index, fill_value=False), 0)
+    for day in episodes(score, threshold):
         i = spx.index.get_loc(day)
         # Letztes Hoch vor dem Signal (Beginn des Rücksetzers)
         before = spx.iloc[: i + 1]
@@ -163,22 +180,24 @@ def report(result: dict) -> str:
     lines += [
         "## Vergleich der Schwellen",
         "",
-        "| Schwelle | Signale | pro Jahr | Abstand Median (Tage) | Hoch bis Signal Median (Tage) | nach dem Tief | danach noch Schnitt / schlimmstens | S&P 3M | Nasdaq 3x 3M | Nasdaq 3x 12M |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Filter | Schwelle | Signale | pro Jahr | Abstand Median (Tage) | Hoch bis Signal Median (Tage) | nach dem Tief | danach noch Schnitt / schlimmstens | S&P 3M | Nasdaq 3x 3M | Nasdaq 3x 12M |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for block in result["signals"].values():
         s = block["summary"]
         if not s["count"]:
-            lines.append(f"| {block['threshold']} | 0 | | | | | | | | |")
+            lines.append(f"| {block['filter']} | {block['threshold']} | 0 | | | | | | | | |")
             continue
         lines.append(
-            f"| {block['threshold']} | {s['count']} | {s['count'] / years:.1f} | {s['median_days_between']} | {s['median_days_peak_to_signal']} "
+            f"| {block['filter']} | {block['threshold']} | {s['count']} | {s['count'] / years:.1f} | {s['median_days_between']} | {s['median_days_peak_to_signal']} "
             f"| {s['share_after_bottom']:.0f} % | {s['avg_further_drop']} % / {s['worst_further_drop']} % "
             f"| {fmt(s.get('spx_3M'), ' %')} ({s.get('spx_3M_pos')} % pos.) | {fmt(s.get('ndx3x_3M'), ' %')} ({s.get('ndx3x_3M_pos')} % pos.) "
             f"| {fmt(s.get('ndx3x_12M'), ' %')} ({s.get('ndx3x_12M_pos')} % pos.) |"
         )
     lines.append("")
     for name, block in result["signals"].items():
+        if block["threshold"] != DETAIL_THRESHOLD:
+            continue
         s = block["summary"]
         lines.append(f"## Signal: Score ab {block['threshold']} ({name})")
         lines.append("")
@@ -219,9 +238,10 @@ def run(src) -> dict:
     sc = sc.loc[EVAL_FROM:].dropna(subset=["score"])
     coverage = {k: v.dropna().index.min().strftime("%Y-%m-%d") for k, v in d.items() if v is not None and not v.dropna().empty}
     signals = {}
-    for thr in THRESHOLDS:
-        rows = analyse(d, sc, thr)
-        signals[f"ab {thr}"] = {"threshold": thr, "rows": rows, "summary": summarize(rows)}
+    for fname, allowed in trend_filters(d["spx"]).items():
+        for thr in THRESHOLDS:
+            rows = analyse(d, sc, thr, allowed)
+            signals[f"ab {thr}, {fname}"] = {"threshold": thr, "filter": fname, "rows": rows, "summary": summarize(rows)}
     return {
         "from": sc.index.min().strftime("%Y-%m-%d"),
         "to": sc.index.max().strftime("%Y-%m-%d"),
