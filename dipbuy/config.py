@@ -44,8 +44,8 @@ TRADE_INDEX = "^NDX"
 # Verkaufssignal: Index schließt mehr als EXIT_BELOW Prozent unter seiner 200-Tage-Linie
 EXIT_BELOW = 3.0
 # Kaufsignal auch dann befolgen, wenn der Nasdaq 100 unter der Verkaufsmarke liegt (Bärenmarkt)?
-# Im Backtest 2007-2026 kostete das 2008 und 2022 viel: größter Verlust mit 3x -93 % statt -76 %.
-BUY_BELOW_EXIT = False
+# Paul: ja (3. Okt. 2026). Im Backtest 2007-2026 mit 3x: 149 € bei größtem Verlust -93 %; mit False 150 € bei -76 %.
+BUY_BELOW_EXIT = True
 
 # Verlauf auf der Seite ab HISTORY_FROM; geladen wird ab HISTORY_START,
 # weil 200-Tage-Linien und das Allzeithoch Vorlauf brauchen

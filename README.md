@@ -16,9 +16,9 @@ Die Seite läuft kostenlos auf GitHub Pages und aktualisiert sich automatisch we
 
 Gekauft wird, sobald dann der RSI (14 Tage) des S&P 500 über dem Schnitt der letzten 2 Tage liegt. So steigt man nicht ein, solange es noch keine Erholung gibt.
 
-**Verkaufen**, wenn der Nasdaq 100 mehr als 3 % unter seine 200-Tage-Linie fällt. **Wieder einsteigen** beim nächsten Kaufsignal oder wenn er wieder über der Linie schließt. Ein Kaufsignal zählt nur, solange der Nasdaq 100 nicht unter dieser Verkaufsmarke liegt (`BUY_BELOW_EXIT` in `dipbuy/config.py`).
+**Verkaufen**, wenn der Nasdaq 100 mehr als 3 % unter seine 200-Tage-Linie fällt. **Wieder einsteigen** beim nächsten Kaufsignal oder wenn er wieder über der Linie schließt. Ein Kaufsignal gilt auch, wenn der Nasdaq 100 tief unter seiner Linie liegt (`BUY_BELOW_EXIT` in `dipbuy/config.py`).
 
-Im Backtest 2007 bis 2026 machte Nasdaq 100 mit 3x Hebel nach diesen Regeln aus 1 € rund 150 € (+28,9 % pro Jahr, größter Verlust −76 %). Hätte man die Kaufsignale auch unter der Verkaufsmarke befolgt, wären es 149 € bei −93 % gewesen, weil man 2008 mitten in den Absturz gekauft hätte. Dauerhaft 3x halten brachte 138 € bei −95 %, ohne Hebel 18 €. Die Kaufsignale allein waren nicht besser als ein beliebiger Tag: im Schnitt +8,7 % nach 3 Monaten mit 3x, gegenüber +11,0 % an irgendeinem Tag.
+Im Backtest 2007 bis 2026 machte Nasdaq 100 mit 3x Hebel nach diesen Regeln aus 1 € rund 149 € (+28,8 % pro Jahr, größter Verlust −93 %, weil man im September 2008 mitten in den Absturz gekauft hätte). Kaufsignale unter der Verkaufsmarke auszulassen hätte 150 € bei −76 % gebracht. Dauerhaft 3x halten brachte 138 € bei −95 %, ohne Hebel 18 €. Die Kaufsignale allein waren nicht besser als ein beliebiger Tag: im Schnitt +8,7 % nach 3 Monaten mit 3x, gegenüber +11,0 % an irgendeinem Tag.
 
 CNN Fear & Greed gibt es nur für die letzten Jahre; im Backtest davor zählt nur S&P 500 und VIX. Die Watchlist bewertet 40 große Growth-Werte aus dem Nasdaq 100 nach Rücksetzer, RSI, Kursziel-Abstand, Analysten-Rating und Änderung der Gewinnschätzung. Alle Werte stehen in `dipbuy/config.py`.
 
